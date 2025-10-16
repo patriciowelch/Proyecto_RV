@@ -1,0 +1,102 @@
+[gd_scene load_steps=13 format=3 uid="uid://cdgotoljaxsxt"]
+
+[ext_resource type="PackedScene" uid="uid://dxnx8vdvccdxo" path="res://example/Player.tscn" id="1_v4vgw"]
+
+[sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_5vlql"]
+sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
+ground_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
+
+[sub_resource type="Sky" id="Sky_v4vgw"]
+sky_material = SubResource("ProceduralSkyMaterial_5vlql")
+
+[sub_resource type="Environment" id="Environment_dwuen"]
+background_mode = 2
+sky = SubResource("Sky_v4vgw")
+tonemap_mode = 2
+glow_enabled = true
+
+[sub_resource type="PlaneMesh" id="PlaneMesh_drscc"]
+
+[sub_resource type="Gradient" id="Gradient_54itw"]
+interpolation_mode = 1
+offsets = PackedFloat32Array(0, 0.508197)
+colors = PackedColorArray(0.176419, 0.176419, 0.176419, 1, 1, 1, 1, 1)
+
+[sub_resource type="FastNoiseLite" id="FastNoiseLite_bjcgi"]
+noise_type = 2
+frequency = 0.0691
+fractal_type = 0
+cellular_jitter = 0.0
+cellular_return_type = 0
+
+[sub_resource type="NoiseTexture2D" id="NoiseTexture2D_hikk5"]
+width = 1024
+height = 1024
+color_ramp = SubResource("Gradient_54itw")
+noise = SubResource("FastNoiseLite_bjcgi")
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_88ojr"]
+albedo_texture = SubResource("NoiseTexture2D_hikk5")
+
+[sub_resource type="ConcavePolygonShape3D" id="ConcavePolygonShape3D_gh54y"]
+data = PackedVector3Array(1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, -1, 0, -1, 1, 0, -1)
+
+[sub_resource type="CylinderMesh" id="CylinderMesh_i8k4x"]
+
+[sub_resource type="StandardMaterial3D" id="StandardMaterial3D_10rq6"]
+albedo_color = Color(0.244776, 0.244776, 0.244776, 1)
+
+[node name="ExampleScene" type="Node3D"]
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_dwuen")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+transform = Transform3D(-0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, 0.75, -0.433013, 0, 0, 0)
+shadow_enabled = true
+
+[node name="Map" type="Node3D" parent="."]
+
+[node name="Floor" type="MeshInstance3D" parent="Map"]
+transform = Transform3D(34.5678, 0, 0, 0, 1, 0, 0, 0, 34.5678, 0, 0, 0)
+mesh = SubResource("PlaneMesh_drscc")
+skeleton = NodePath("../..")
+surface_material_override/0 = SubResource("StandardMaterial3D_88ojr")
+
+[node name="StaticBody3D" type="StaticBody3D" parent="Map/Floor"]
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="Map/Floor/StaticBody3D"]
+shape = SubResource("ConcavePolygonShape3D_gh54y")
+
+[node name="Tower" type="MeshInstance3D" parent="Map"]
+transform = Transform3D(2.22813, 0, 0, 0, 10.0474, 0, 0, 0, 2.22813, 0.023654, 9.99452, -12.1982)
+mesh = SubResource("CylinderMesh_i8k4x")
+skeleton = NodePath("../..")
+surface_material_override/0 = SubResource("StandardMaterial3D_10rq6")
+
+[node name="Tower2" type="MeshInstance3D" parent="Map"]
+transform = Transform3D(2.22813, 0, 0, 0, 10.0474, 0, 0, 0, 2.22813, 16.3621, 9.99452, -20.7566)
+mesh = SubResource("CylinderMesh_i8k4x")
+skeleton = NodePath("../..")
+surface_material_override/0 = SubResource("StandardMaterial3D_10rq6")
+
+[node name="Tower3" type="MeshInstance3D" parent="Map"]
+transform = Transform3D(2.22813, 0, 0, 0, 10.0474, 0, 0, 0, 2.22813, -22.9483, 9.99452, 19.3123)
+mesh = SubResource("CylinderMesh_i8k4x")
+skeleton = NodePath("../..")
+surface_material_override/0 = SubResource("StandardMaterial3D_10rq6")
+
+[node name="Tower4" type="MeshInstance3D" parent="Map"]
+transform = Transform3D(2.22813, 0, 0, 0, 10.0474, 0, 0, 0, 2.22813, 23.6326, 9.99452, 14.6778)
+mesh = SubResource("CylinderMesh_i8k4x")
+skeleton = NodePath("../..")
+surface_material_override/0 = SubResource("StandardMaterial3D_10rq6")
+
+[node name="Tower5" type="MeshInstance3D" parent="Map"]
+transform = Transform3D(2.22813, 0, 0, 0, 10.0474, 0, 0, 0, 2.22813, -0.87928, 5.60925, 14.6778)
+mesh = SubResource("CylinderMesh_i8k4x")
+skeleton = NodePath("../..")
+surface_material_override/0 = SubResource("StandardMaterial3D_10rq6")
+
+[node name="Player" parent="." instance=ExtResource("1_v4vgw")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.34278, 0)

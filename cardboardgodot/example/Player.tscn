@@ -1,0 +1,17 @@
+[gd_scene load_steps=4 format=3 uid="uid://dxnx8vdvccdxo"]
+
+[ext_resource type="Script" uid="uid://hcy1fr7my64b" path="res://example/player.gd" id="1_cc814"]
+[ext_resource type="Script" uid="uid://s5ugrpk4rfw4" path="res://addons/cardboard_vr/scripts/cardboard_vr_camera.gd" id="2_urgpd"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_6ytbd"]
+
+[node name="Player" type="CharacterBody3D"]
+script = ExtResource("1_cc814")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+shape = SubResource("CapsuleShape3D_6ytbd")
+
+[node name="CardboardVRCamera3D" type="Camera3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.452642, 0)
+script = ExtResource("2_urgpd")
+metadata/_custom_type_script = "uid://s5ugrpk4rfw4"

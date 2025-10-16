@@ -1,0 +1,58 @@
+[gd_scene load_steps=4 format=3 uid="uid://b074dtgfkw0i4"]
+
+[ext_resource type="Script" uid="uid://cvxxnebjghslj" path="res://addons/cardboard_vr/scenes/cardboard_view.gd" id="1_76sec"]
+[ext_resource type="Shader" uid="uid://dm1wai2dl3ol6" path="res://addons/cardboard_vr/shaders/LensBarrelShader.gdshader" id="1_gbn34"]
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_76sec"]
+shader = ExtResource("1_gbn34")
+shader_parameter/distortion_strength = 0.5
+shader_parameter/distortion_radius = 1.0
+
+[node name="CardboardView" type="CanvasLayer"]
+script = ExtResource("1_76sec")
+
+[node name="Background" type="ColorRect" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+color = Color(0, 0, 0, 1)
+
+[node name="HorizontalDivider" type="HBoxContainer" parent="."]
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="LeftEyeControl" type="Control" parent="HorizontalDivider"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="LeftEye" type="TextureRect" parent="HorizontalDivider/LeftEyeControl"]
+material = SubResource("ShaderMaterial_76sec")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="RightEyeControl" type="Control" parent="HorizontalDivider"]
+layout_mode = 2
+size_flags_horizontal = 3
+mouse_filter = 2
+
+[node name="RightEye" type="TextureRect" parent="HorizontalDivider/RightEyeControl"]
+material = SubResource("ShaderMaterial_76sec")
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
