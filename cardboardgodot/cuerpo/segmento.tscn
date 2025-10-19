@@ -1,0 +1,23 @@
+[gd_scene load_steps=4 format=3 uid="uid://rnjd75757bup"]
+
+[ext_resource type="Script" uid="uid://jgjhrhr276l1" path="res://segmento.gd" id="1_i0rj7"]
+
+[sub_resource type="CapsuleShape3D" id="CapsuleShape3D_oeovy"]
+radius = 0.3
+height = 2.7
+
+[sub_resource type="CapsuleMesh" id="CapsuleMesh_n6cj8"]
+radius = 0.3
+height = 2.7
+
+[node name="Segmento" type="Area3D"]
+script = ExtResource("1_i0rj7")
+
+[node name="CollisionShape3D" type="CollisionShape3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.35, 0.001)
+shape = SubResource("CapsuleShape3D_oeovy")
+
+[node name="MeshInstance3D" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.35, 0)
+mesh = SubResource("CapsuleMesh_n6cj8")
+skeleton = NodePath("../CollisionShape3D")
