@@ -57,8 +57,12 @@ func _input(event):
 		recenter()
 		return
 
-	if event is InputEventJoypadButton and event.pressed \
-			and event.button_index == Input_Wizard_Joy_Button:
+	# Tab como alternativa por teclado: permite probar el asistente sin el mando.
+	var wizard_requested: bool = (event is InputEventJoypadButton and event.pressed \
+			and event.button_index == Input_Wizard_Joy_Button) \
+		or (event is InputEventKey and event.pressed and not event.echo \
+			and event.keycode == KEY_TAB)
+	if wizard_requested:
 		if Wizard:
 			Wizard.start(self)
 		return
@@ -86,6 +90,10 @@ func _input(event):
 	
 						
 func _ready() -> void:
+	# Refuerza el modo pantalla completa de project.godot: en Android el modo
+	# inmersivo se pierde con facilidad y la barra de estado vuelve a dibujarse
+	# sobre el borde superior de la imagen.
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 	parent = get_parent()
 	_initial_parent_rotation = parent.rotation
 	LeftEyePivot.add_child(left_camera_3d)

@@ -19,6 +19,7 @@ signal phase_changed(phase: int)
 enum Phase { IPD, LENS, DONE }
 
 const IPD_STEP := 0.02
+const CONV_STEP := 0.1
 const K_STEP := 0.005
 const REPEAT_DELAY := 0.35
 const REPEAT_RATE := 0.06
@@ -38,8 +39,9 @@ var _phase: int = Phase.IPD
 ## Sin esto el asistente atendería el mando antes de haber arrancado y le
 ## robaría la entrada al menú de calibración.
 var _active := false
-## En fase 2 se elige cuál de los dos coeficientes ajustan izquierda/derecha.
-var _lens_coefficient := 0
+## Cuál de los dos parámetros de la fase actual ajustan izquierda/derecha.
+## Fase 1: separación / convergencia. Fase 2: k1 / k2.
+var _selected_param := 0
 var _target: MeshInstance3D
 var _mirrors: Array[TextureRect] = []
 
@@ -141,11 +143,16 @@ func _make_cross_texture(px: int = 256) -> ImageTexture:
 
 func _enter_phase(phase: int) -> void:
 	_phase = phase
+	_selected_param = 0
 	match phase:
 		Phase.IPD:
 			_phase_label.text = "Fase 1 de 2 — Distancia interpupilar"
-			_instruction.text = "Ajustá la distancia hasta que veas una sola figura nítida y no veas doble."
-			_pattern.set_pattern(CalibrationTestPattern.Pattern.CROSS)
+			_instruction.text = "Mirá la figura del fondo: ajustá hasta verla como una sola imagen nítida, sin doble. Arriba/abajo cambia entre separación y convergencia."
+			# Sin patrón en pantalla: cualquier dibujo de la UI se espeja igual en
+			# los dos ojos, así que tiene disparidad fija y es IMPOSIBLE de
+			# fusionar ajustando el IPD. Poner una retícula acá haría creer que
+			# la calibración no converge nunca. Lo que se fusiona es el objeto 3D.
+			_pattern.set_pattern(CalibrationTestPattern.Pattern.NONE)
 			_next_button.text = "Siguiente"
 			if _target:
 				_target.visible = true
@@ -170,23 +177,33 @@ func _enter_phase(phase: int) -> void:
 func _refresh() -> void:
 	match _phase:
 		Phase.IPD:
-			_value_label.text = "Separación de ojos: %.3f" % camera.EyesSeparation
+			var sel_sep := "> " if _selected_param == 0 else "   "
+			var sel_conv := "> " if _selected_param == 1 else "   "
+			_value_label.text = "%sSeparación: %.3f\n%sConvergencia: %.2f°" % [
+				sel_sep, camera.EyesSeparation, sel_conv, camera.EyeConvergencyAngle]
 		Phase.LENS:
 			var k1: float = lens_material.get_shader_parameter("k1")
 			var k2: float = lens_material.get_shader_parameter("k2")
-			var sel_k1 := "> " if _lens_coefficient == 0 else "   "
-			var sel_k2 := "> " if _lens_coefficient == 1 else "   "
+			var sel_k1 := "> " if _selected_param == 0 else "   "
+			var sel_k2 := "> " if _selected_param == 1 else "   "
 			_value_label.text = "%sk1: %.3f\n%sk2: %.3f" % [sel_k1, k1, sel_k2, k2]
 
 
 func _adjust(dir: int) -> void:
 	match _phase:
 		Phase.IPD:
-			camera.EyesSeparation = clampf(
-				camera.EyesSeparation + dir * IPD_STEP, 0.0, 5.0)
+			if _selected_param == 0:
+				camera.EyesSeparation = clampf(
+					camera.EyesSeparation + dir * IPD_STEP, 0.0, 5.0)
+			else:
+				# La convergencia rota cada ojo hacia adentro. Con separación 0
+				# sigue habiendo doble imagen si este ángulo no es el correcto,
+				# así que tiene que ser ajustable acá o la fase no cierra.
+				camera.EyeConvergencyAngle = clampf(
+					camera.EyeConvergencyAngle + dir * CONV_STEP, -30.0, 30.0)
 			camera.apply_eye_transform()
 		Phase.LENS:
-			var key := "k1" if _lens_coefficient == 0 else "k2"
+			var key := "k1" if _selected_param == 0 else "k2"
 			var v: float = lens_material.get_shader_parameter(key)
 			lens_material.set_shader_parameter(key, clampf(v + dir * K_STEP, -0.5, 0.5))
 	_refresh()
@@ -243,12 +260,12 @@ func _input(event: InputEvent) -> void:
 				_adjust(1)
 
 
-## Izquierda/derecha ajusta; arriba/abajo elige coeficiente en la fase 2.
+## Izquierda/derecha ajusta el parámetro elegido; arriba/abajo alterna entre los
+## dos parámetros de la fase actual.
 func _dispatch(v: Vector2) -> void:
 	if absf(v.y) > absf(v.x):
-		if _phase == Phase.LENS:
-			_lens_coefficient = 1 - _lens_coefficient
-			_refresh()
+		_selected_param = 1 - _selected_param
+		_refresh()
 	elif absf(v.x) > 0.0:
 		_adjust(1 if v.x > 0.0 else -1)
 

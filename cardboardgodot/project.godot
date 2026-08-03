@@ -16,6 +16,12 @@ config/icon="res://icon.svg"
 run/main_scene="res://example/ExampleScene.tscn"
 config/quit_on_go_back=false
 
+[display]
+
+; Pantalla completa: si no, Android dibuja la barra de estado sobre el borde
+; superior de la imagen y queda a la vista dentro del visor.
+window/size/mode=3
+
 [input_devices]
 
 sensors/enable_gyroscope=true
