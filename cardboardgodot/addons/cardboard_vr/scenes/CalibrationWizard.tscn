@@ -1,0 +1,96 @@
+[gd_scene load_steps=4 format=3 uid="uid://dq7wzv1calib0"]
+
+[ext_resource type="Script" path="res://addons/cardboard_vr/scripts/calibration_wizard.gd" id="1_wiz"]
+[ext_resource type="Script" path="res://addons/cardboard_vr/scripts/calibration_test_pattern.gd" id="2_pat"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_wizpanel"]
+bg_color = Color(0, 0, 0, 0.65)
+content_margin_left = 16.0
+content_margin_top = 12.0
+content_margin_right = 16.0
+content_margin_bottom = 12.0
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[node name="CalibrationWizard" type="Node"]
+script = ExtResource("1_wiz")
+
+[node name="UIViewport" type="SubViewport" parent="."]
+disable_3d = true
+transparent_bg = true
+handle_input_locally = false
+size = Vector2i(960, 900)
+render_target_update_mode = 4
+
+[node name="WizardUI" type="Control" parent="UIViewport"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="TestPattern" type="Control" parent="UIViewport/WizardUI"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("2_pat")
+
+[node name="Panel" type="PanelContainer" parent="UIViewport/WizardUI"]
+layout_mode = 1
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -380.0
+offset_top = -250.0
+offset_right = 380.0
+offset_bottom = -40.0
+grow_horizontal = 2
+grow_vertical = 0
+theme_override_styles/panel = SubResource("StyleBoxFlat_wizpanel")
+
+[node name="VBox" type="VBoxContainer" parent="UIViewport/WizardUI/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 8
+
+[node name="PhaseLabel" type="Label" parent="UIViewport/WizardUI/Panel/VBox"]
+layout_mode = 2
+text = "Fase 1 de 2 — Distancia interpupilar"
+horizontal_alignment = 1
+
+[node name="Instruction" type="Label" parent="UIViewport/WizardUI/Panel/VBox"]
+layout_mode = 2
+text = "Ajustá la distancia hasta que veas una sola figura nítida y no veas doble."
+autowrap_mode = 2
+horizontal_alignment = 1
+
+[node name="Value" type="Label" parent="UIViewport/WizardUI/Panel/VBox"]
+layout_mode = 2
+text = "Separación de ojos: 2.000"
+horizontal_alignment = 1
+
+[node name="Buttons" type="HBoxContainer" parent="UIViewport/WizardUI/Panel/VBox"]
+layout_mode = 2
+alignment = 1
+theme_override_constants/separation = 24
+
+[node name="Minus" type="Button" parent="UIViewport/WizardUI/Panel/VBox/Buttons"]
+layout_mode = 2
+text = "  −  (botón 2)  "
+
+[node name="Plus" type="Button" parent="UIViewport/WizardUI/Panel/VBox/Buttons"]
+layout_mode = 2
+text = "  +  (botón 3)  "
+
+[node name="Next" type="Button" parent="UIViewport/WizardUI/Panel/VBox/Buttons"]
+layout_mode = 2
+text = "  Siguiente  (botón 0)  "

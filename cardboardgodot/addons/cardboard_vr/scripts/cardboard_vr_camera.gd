@@ -11,6 +11,9 @@ class_name CardboardVRCamera extends Camera3D
 ## Botón del mando que recentra la vista. En el IVRA07 el 9 es el gatillo que
 ## Godot expone como JOY_BUTTON_LEFT_SHOULDER.
 @export var Input_Recenter_Joy_Button : int = JOY_BUTTON_LEFT_SHOULDER
+## Botón que lanza el asistente de calibración guiada. El 10 del IVRA07 es el
+## que Godot expone como JOY_BUTTON_RIGHT_SHOULDER.
+@export var Input_Wizard_Joy_Button : int = JOY_BUTTON_RIGHT_SHOULDER
 
 @export_category("Eyes")
 @export_range(0.1, 2.0) var EyesSeparation : float = 2
@@ -29,8 +32,10 @@ const MENU_VIEWPORT_SIZE := Vector2i(600, 640)
 
 var viewScene = preload("res://addons/cardboard_vr/scenes/CardboardView.tscn")
 var menuScene = preload("res://addons/cardboard_vr/scenes/CalibrationMenu.tscn")
+var wizardScene = preload("res://addons/cardboard_vr/scenes/CalibrationWizard.tscn")
 var MenuViewport : SubViewport
 var MenuPanel : Sprite3D
+var Wizard : Node
 var left_camera_3d: Camera3D = Camera3D.new()
 var right_camera_3d: Camera3D = Camera3D.new()
 var LeftEyePivot : Node3D = Node3D.new()
@@ -50,6 +55,12 @@ func _input(event):
 	if event is InputEventJoypadButton and event.pressed \
 			and event.button_index == Input_Recenter_Joy_Button:
 		recenter()
+		return
+
+	if event is InputEventJoypadButton and event.pressed \
+			and event.button_index == Input_Wizard_Joy_Button:
+		if Wizard:
+			Wizard.start(self)
 		return
 
 	# Un SubViewport no recibe input del viewport padre por sí solo, así que hay
@@ -85,6 +96,8 @@ func _ready() -> void:
 	add_child(View)
 	add_child(LeftEyeSubViewPort)
 	add_child(RightEyeSubViewPort)	
+	_update_eye_viewport_size()
+	get_window().size_changed.connect(_update_eye_viewport_size)
 	View.SetViewPorts(LeftEyeSubViewPort, RightEyeSubViewPort)
 	LeftEyePivot.position.y = EyeHeight
 	RightEyePivot.position.y = EyeHeight
@@ -135,6 +148,23 @@ func _create_world_menu() -> void:
 	MenuPanel.global_rotation = Vector3.ZERO
 
 	menu.setup(self, View.get_lens_material(), MenuPanel)
+
+	Wizard = wizardScene.instantiate()
+	add_child(Wizard)
+
+## Los SubViewport de cada ojo nacen en 512x512. Estirar ese cuadrado al medio
+## rectángulo de pantalla deforma la imagen, y una cuadrícula de calibración
+## dejaría de tener celdas cuadradas, que es justo lo que hay que juzgar.
+func _update_eye_viewport_size() -> void:
+	var win := get_window().size
+	var eye_size := Vector2i(maxi(win.x / 2, 1), maxi(win.y, 1))
+	LeftEyeSubViewPort.size = eye_size
+	RightEyeSubViewPort.size = eye_size
+
+## Los dos viewports de ojo, para que el asistente de calibración pueda
+## espejar su UI dentro de ambos y no sesgar la medición con un solo ojo.
+func get_eye_viewports() -> Array:
+	return [LeftEyeSubViewPort, RightEyeSubViewPort]
 
 ## Recalcula la posición/rotación de cada ojo a partir de EyesSeparation y
 ## EyeConvergencyAngle. Idempotente: se puede llamar en caliente desde el

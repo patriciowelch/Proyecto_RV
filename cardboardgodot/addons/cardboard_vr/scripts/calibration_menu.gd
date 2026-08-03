@@ -38,8 +38,9 @@ var param_defs := [
 	{"key": "use_gyro", "label": "Usar giroscopio", "bool": true},
 	{"key": "gyro_sens", "label": "Sensibilidad giroscopio", "min": 0.001, "max": 0.2, "step": 0.001},
 	{"key": "mouse_sens", "label": "Sensibilidad mouse", "min": 0.0005, "max": 0.02, "step": 0.0005},
-	{"key": "lens_strength", "label": "Distorsión lente (fuerza)", "min": 0.0, "max": 1.0, "step": 0.02},
-	{"key": "lens_radius", "label": "Distorsión lente (radio)", "min": 0.05, "max": 1.0, "step": 0.02},
+	{"key": "lens_k1", "label": "Distorsión lente k1", "min": -0.5, "max": 0.5, "step": 0.005},
+	{"key": "lens_k2", "label": "Distorsión lente k2", "min": -0.5, "max": 0.5, "step": 0.005},
+	{"key": "lens_scale", "label": "Escala de lente", "min": 0.5, "max": 1.5, "step": 0.01},
 ]
 
 var _defaults: Array = []
@@ -268,8 +269,9 @@ func _get_value(i: int):
 		"use_gyro": return camera.UseGysroscope
 		"gyro_sens": return camera.GysroscopeFactor
 		"mouse_sens": return camera.Mouse_Sensitivity
-		"lens_strength": return lens_material.get_shader_parameter("distortion_strength")
-		"lens_radius": return lens_material.get_shader_parameter("distortion_radius")
+		"lens_k1": return lens_material.get_shader_parameter("k1")
+		"lens_k2": return lens_material.get_shader_parameter("k2")
+		"lens_scale": return lens_material.get_shader_parameter("scale")
 	return 0
 
 
@@ -289,10 +291,12 @@ func _set_value(i: int, v) -> void:
 			camera.GysroscopeFactor = v
 		"mouse_sens":
 			camera.Mouse_Sensitivity = v
-		"lens_strength":
-			lens_material.set_shader_parameter("distortion_strength", v)
-		"lens_radius":
-			lens_material.set_shader_parameter("distortion_radius", v)
+		"lens_k1":
+			lens_material.set_shader_parameter("k1", v)
+		"lens_k2":
+			lens_material.set_shader_parameter("k2", v)
+		"lens_scale":
+			lens_material.set_shader_parameter("scale", v)
 
 
 func _save() -> void:

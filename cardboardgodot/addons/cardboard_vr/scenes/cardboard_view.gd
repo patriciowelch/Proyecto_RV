@@ -15,6 +15,18 @@ func SetViewPorts(leftEye : SubViewport, rightEye : SubViewport):
 
 	left_eye.texture = leftEye.get_texture()
 	right_eye.texture = rightEye.get_texture()
+	_update_lens_aspect()
+	left_eye.resized.connect(_update_lens_aspect)
+
+## El shader mide el radio en UV del rectángulo del ojo, que no es cuadrado.
+## Sin pasarle el aspecto la distorsión sale elíptica en vez de radial.
+func _update_lens_aspect() -> void:
+	var mat := get_lens_material()
+	if mat == null:
+		return
+	var s := left_eye.size
+	if s.y > 0.0:
+		mat.set_shader_parameter("aspect", s.x / s.y)
 
 func get_lens_material() -> ShaderMaterial:
 	return left_eye.material
