@@ -1,0 +1,65 @@
+[gd_scene load_steps=3 format=3 uid="uid://c8kqjx2vn5pqa"]
+
+[ext_resource type="Script" path="res://addons/cardboard_vr/scripts/calibration_menu.gd" id="1_calib"]
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel"]
+bg_color = Color(0, 0, 0, 0.6)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[node name="CalibrationMenu" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1_calib")
+
+[node name="Panel" type="PanelContainer" parent="."]
+layout_mode = 1
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -240.0
+offset_top = -260.0
+offset_right = 240.0
+offset_bottom = 260.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel")
+
+[node name="VBox" type="VBoxContainer" parent="Panel"]
+layout_mode = 2
+theme_override_constants/separation = 6
+
+[node name="Title" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+text = "Calibración Cardboard VR"
+
+[node name="Separator" type="HSeparator" parent="Panel/VBox"]
+layout_mode = 2
+
+[node name="List" type="VBoxContainer" parent="Panel/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 4
+
+[node name="Spacer" type="Control" parent="Panel/VBox"]
+layout_mode = 2
+size_flags_vertical = 3
+
+[node name="Debug" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+autowrap_mode = 2
+text = "última entrada: -"
+
+[node name="Hint" type="Label" parent="Panel/VBox"]
+layout_mode = 2
+autowrap_mode = 2
+text = "botón 1: abrir/cerrar · botón 0: reset · botones 2/3: -/+ · mover: elegir y ajustar"

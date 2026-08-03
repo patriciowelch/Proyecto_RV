@@ -14,6 +14,7 @@ config/name="CardboardGodot"
 config/features=PackedStringArray("4.4", "GL Compatibility")
 config/icon="res://icon.svg"
 run/main_scene="res://example/ExampleScene.tscn"
+config/quit_on_go_back=false
 
 [input_devices]
 

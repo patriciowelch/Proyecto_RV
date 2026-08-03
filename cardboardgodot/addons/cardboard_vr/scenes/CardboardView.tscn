@@ -5,7 +5,7 @@
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_76sec"]
 shader = ExtResource("1_gbn34")
-shader_parameter/distortion_strength = 0.5
+shader_parameter/distortion_strength = 0.0
 shader_parameter/distortion_radius = 1.0
 
 [node name="CardboardView" type="CanvasLayer"]

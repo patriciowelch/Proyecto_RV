@@ -4,17 +4,33 @@ class_name CardboardVRCamera extends Camera3D
 @export_category("Controls")
 @export var UseGysroscope : bool = true
 @export var Mouse_Sensitivity : float = 0.003
-@export var GysroscopeFactor : float = 0.2
+@export var GysroscopeFactor : float = 0.013
 @export var RotateParent : bool = true
 @export var Handle_Mouse_Capture : bool = true
-@export var Input_Cancel : String  = "cancel"
+@export var Input_Cancel : String  = "ui_cancel"
+## Botón del mando que recentra la vista. En el IVRA07 el 9 es el gatillo que
+## Godot expone como JOY_BUTTON_LEFT_SHOULDER.
+@export var Input_Recenter_Joy_Button : int = JOY_BUTTON_LEFT_SHOULDER
 
 @export_category("Eyes")
 @export_range(0.1, 2.0) var EyesSeparation : float = 2
 @export_range(0, 5.0) var EyeHeight : float =  0.8
-@export_range(-360, 360) var EyeConvergencyAngle : float =  3
+@export_range(-360, 360) var EyeConvergencyAngle : float =  3.5
+
+@export_category("Menú de calibración")
+## Distancia del panel de calibración frente a la posición inicial. Tiene que
+## ser grande comparada con EyesSeparation: los ojos están en x = ±Separación,
+## así que un panel cercano cae fuera del frustum de un ojo y se ve en uno solo.
+@export var MenuDistance : float = 30.0
+## Escala del panel: unidades de mundo por píxel del viewport del menú.
+@export var MenuPixelSize : float = 0.03
+
+const MENU_VIEWPORT_SIZE := Vector2i(600, 640)
 
 var viewScene = preload("res://addons/cardboard_vr/scenes/CardboardView.tscn")
+var menuScene = preload("res://addons/cardboard_vr/scenes/CalibrationMenu.tscn")
+var MenuViewport : SubViewport
+var MenuPanel : Sprite3D
 var left_camera_3d: Camera3D = Camera3D.new()
 var right_camera_3d: Camera3D = Camera3D.new()
 var LeftEyePivot : Node3D = Node3D.new()
@@ -24,10 +40,23 @@ var LeftEyeSubViewPort : SubViewport = SubViewport.new()
 var RightEyeSubViewPort : SubViewport = SubViewport.new()
 var parent : CharacterBody3D = get_parent()
 
-func _input(event):	
+## Orientación del cuerpo al arrancar, para poder volver a ella al recentrar.
+var _initial_parent_rotation : Vector3 = Vector3.ZERO
+
+func _input(event):
 	if not Active:
 		return
-		
+
+	if event is InputEventJoypadButton and event.pressed \
+			and event.button_index == Input_Recenter_Joy_Button:
+		recenter()
+		return
+
+	# Un SubViewport no recibe input del viewport padre por sí solo, así que hay
+	# que empujárselo a mano o el menú nunca vería las teclas ni los botones.
+	if MenuViewport:
+		MenuViewport.push_input(event)
+
 	if Handle_Mouse_Capture:
 		if event is InputEventMouseButton:
 			Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
@@ -45,8 +74,9 @@ func _input(event):
 		RightEyePivot.global_rotation.x = clamp(RightEyePivot.global_rotation.x, deg_to_rad(-90), deg_to_rad(90))	
 	
 						
-func _ready() -> void:		
+func _ready() -> void:
 	parent = get_parent()
+	_initial_parent_rotation = parent.rotation
 	LeftEyePivot.add_child(left_camera_3d)
 	LeftEyeSubViewPort.add_child(LeftEyePivot)
 	RightEyePivot.add_child(right_camera_3d)	
@@ -55,15 +85,78 @@ func _ready() -> void:
 	add_child(View)
 	add_child(LeftEyeSubViewPort)
 	add_child(RightEyeSubViewPort)	
-	View.SetViewPorts(LeftEyeSubViewPort, RightEyeSubViewPort)	
-	left_camera_3d.position.x = -(EyesSeparation)
-	right_camera_3d.position.x = EyesSeparation		
+	View.SetViewPorts(LeftEyeSubViewPort, RightEyeSubViewPort)
 	LeftEyePivot.position.y = EyeHeight
 	RightEyePivot.position.y = EyeHeight
+	apply_eye_transform()
+	# Diferido: el panel se cuelga del padre del jugador, que en este momento
+	# todavía está instanciando sus hijos y rechazaría un add_child.
+	_create_world_menu.call_deferred()
+
+## Monta el menú de calibración como un panel 3D fijo en el mundo, en vez de un
+## overlay sobre un solo ojo: puesto sobre un ojo la distorsión y el sesgo del
+## propio panel falsean la calibración que se está midiendo.
+func _create_world_menu() -> void:
+	MenuViewport = SubViewport.new()
+	MenuViewport.size = MENU_VIEWPORT_SIZE
+	MenuViewport.transparent_bg = true
+	MenuViewport.disable_3d = true
+	MenuViewport.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+
+	var menu := menuScene.instantiate()
+	MenuViewport.add_child(menu)
+
+	MenuPanel = Sprite3D.new()
+	MenuPanel.add_child(MenuViewport)
+	MenuPanel.texture = MenuViewport.get_texture()
+	MenuPanel.pixel_size = MenuPixelSize
+	MenuPanel.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	MenuPanel.shaded = false
+	MenuPanel.double_sided = false
+	MenuPanel.transparent = true
+	# Sin test de profundidad para que no lo tape la geometría del nivel.
+	MenuPanel.no_depth_test = true
+	MenuPanel.visible = false
+
+	# Se cuelga del padre del jugador para quedar fijo en el mundo y no
+	# seguirlo cuando los landmarks le mueven la posición.
+	var world_root := parent.get_parent()
+	if world_root == null:
+		world_root = get_tree().current_scene
+	world_root.add_child(MenuPanel)
+
+	# Se alinea con el mundo, no con la rotación del cuerpo: los pivotes de ojo
+	# no cuelgan del jugador y recenter() los deja en rotación cero, así que la
+	# vista recentrada mira al -Z del mundo. Ubicarlo ahí garantiza que el panel
+	# quede siempre de frente al recentrar.
+	MenuPanel.global_position = parent.global_position \
+		+ Vector3(0, EyeHeight, 0) \
+		+ Vector3(0, 0, -MenuDistance)
+	MenuPanel.global_rotation = Vector3.ZERO
+
+	menu.setup(self, View.get_lens_material(), MenuPanel)
+
+## Recalcula la posición/rotación de cada ojo a partir de EyesSeparation y
+## EyeConvergencyAngle. Idempotente: se puede llamar en caliente desde el
+## menú de calibración sin ir acumulando rotaciones.
+func apply_eye_transform() -> void:
+	left_camera_3d.position.x = -EyesSeparation
+	right_camera_3d.position.x = EyesSeparation
+	left_camera_3d.rotation = Vector3.ZERO
+	right_camera_3d.rotation = Vector3.ZERO
 	left_camera_3d.rotate_object_local(Vector3.UP, deg_to_rad(EyeConvergencyAngle))
 	right_camera_3d.rotate_object_local(Vector3.UP, -deg_to_rad(EyeConvergencyAngle))
-	
-func _process(delta: float) -> void:	
+
+## Devuelve la vista a su orientación inicial. Hace falta porque el giroscopio
+## se integra por acumulación y va derivando, así que la vista termina girada
+## respecto del cuerpo aunque la cabeza esté al frente.
+func recenter() -> void:
+	LeftEyePivot.rotation = Vector3.ZERO
+	RightEyePivot.rotation = Vector3.ZERO
+	if RotateParent and parent:
+		parent.rotation = _initial_parent_rotation
+
+func _process(delta: float) -> void:
 	if not Active:
 		return
 		

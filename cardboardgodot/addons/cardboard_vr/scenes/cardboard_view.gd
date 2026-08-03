@@ -11,7 +11,10 @@ var right_eye_position: Vector2
 var currentSize = 0.0
 var currentCenterOffset = 0.0
 
-func SetViewPorts(leftEye : SubViewport, rightEye : SubViewport):	
-	
+func SetViewPorts(leftEye : SubViewport, rightEye : SubViewport):
+
 	left_eye.texture = leftEye.get_texture()
 	right_eye.texture = rightEye.get_texture()
+
+func get_lens_material() -> ShaderMaterial:
+	return left_eye.material
