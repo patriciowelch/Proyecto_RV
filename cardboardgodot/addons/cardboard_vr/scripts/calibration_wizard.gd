@@ -153,12 +153,8 @@ func _enter_phase(phase: int) -> void:
 	match phase:
 		Phase.IPD:
 			_phase_label.text = "Fase 1 de 2 — Distancia interpupilar"
-			_instruction.text = "Mirá la figura del fondo: ajustá hasta verla como una sola imagen nítida, sin doble. Arriba/abajo cambia entre separación y convergencia."
-			# Sin patrón en pantalla: cualquier dibujo de la UI se espeja igual en
-			# los dos ojos, así que tiene disparidad fija y es IMPOSIBLE de
-			# fusionar ajustando el IPD. Poner una retícula acá haría creer que
-			# la calibración no converge nunca. Lo que se fusiona es el objeto 3D.
-			_pattern.set_pattern(CalibrationTestPattern.Pattern.NONE)
+			_instruction.text = "Ajustá hasta ver una sola figura nítida, sin doble. Arriba/abajo cambia entre separación y convergencia."
+			_pattern.set_pattern(CalibrationTestPattern.Pattern.CROSS)
 			_next_button.text = "Siguiente"
 			if _target:
 				_target.visible = true
@@ -305,8 +301,19 @@ func _raw_direction() -> Vector2:
 func _process(delta: float) -> void:
 	var v := _rotate(_raw_direction())
 	var h := 0
+	var ver := 0
 	if absf(v.x) > STICK_DEADZONE:
 		h = signi(int(signf(v.x)))
+	if absf(v.y) > STICK_DEADZONE:
+		ver = signi(int(signf(v.y)))
+
+	# Vertical alterna el parámetro. Solo por flanco: repetir un conmutador de
+	# dos estados lo haría parpadear mientras se mantiene la dirección.
+	if ver != _dir.y:
+		_dir.y = ver
+		if ver != 0:
+			_selected_param = 1 - _selected_param
+			_refresh()
 
 	if h != _dir.x:
 		_dir.x = h
