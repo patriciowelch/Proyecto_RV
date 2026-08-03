@@ -1,0 +1,18 @@
+[gd_scene load_steps=4 format=3 uid="uid://cedel0hpdpd52"]
+
+[ext_resource type="PackedScene" uid="uid://rnjd75757bup" path="res://segmento.tscn" id="1_jin1c"]
+[ext_resource type="Script" uid="uid://c11k5li7wblq" path="res://munion.gd" id="1_li8ap"]
+[ext_resource type="PackedScene" uid="uid://c15xfcv5xs2t0" path="res://punto.tscn" id="2_li8ap"]
+
+[node name="Munion" type="Node3D"]
+script = ExtResource("1_li8ap")
+
+[node name="Segmento" parent="." instance=ExtResource("1_jin1c")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.00741457, 1.34002, -0.0360169)
+visible = false
+
+[node name="Punto" parent="." instance=ExtResource("2_li8ap")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.00741457, 1.34002, -0.0360169)
+
+[node name="Punto2" parent="." instance=ExtResource("2_li8ap")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.00903384, 3.95052, -0.0439781)

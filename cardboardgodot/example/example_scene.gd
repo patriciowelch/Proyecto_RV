@@ -1,144 +1,106 @@
 extends Node3D
 
+# Cuántas unidades de mundo cubre el ancho del cuerpo (x en [0,1] → [-SCALE/2, SCALE/2])
+const SCALE = 3.0
+
 var websocket: WebSocketPeer
 var url = ""
 var conectado = false
-@onready var label = $CanvasLayer/Label
-# Relación entre los nombres de los nodos N y los puntos P
-var landmark_to_node = {
-	"N11": "P11",
-	"N12": "P12",
-	"N13": "P13",
-	"N14": "P14",
-	"N15": "P15",
-	"N16": "P16",
-	"N0":  "P0",
-	"N23": "P23",
-	"N24": "P24",
-	"N25": "P25",
-	"N26": "P26",
-	"N27": "P27",
-	"N28": "P28"
-}
 
-# Acceso dinámico a los nodos P
-@onready var node_refs = {}
-@onready var player = $Player
-# Registro de acciones activas
-var acciones_activas = {}
+@onready var label   = $CanvasLayer/Label
+@onready var player  = $Player
 
-func _ready():
-	label.text = "Cliente WebSocket iniciado" + '\n'
+# Nodos P indexados por id de landmark (0, 11-16, 23-28)
+const LANDMARK_IDS = [0, 11, 12, 13, 14, 15, 16, 23, 24, 25, 26, 27, 28]
+@onready var node_refs: Dictionary = {}
+
+
+func _ready() -> void:
+	label.text = "Cliente WebSocket iniciado\n"
 	websocket = WebSocketPeer.new()
-	# Guardar referencias a los nodos P
-	for k in landmark_to_node.values():
-		node_refs[k] = $Nube.get_node(k)
-	# Escanear IPs y conectar
+	for id in LANDMARK_IDS:
+		node_refs[id] = $Nube.get_node("P" + str(id))
 	escanear_ips_y_conectar()
 
-# Escanea el rango 192.168.137.1-30 y conecta al primer servidor WebSocket disponible
-func escanear_ips_y_conectar(puerto: int = 8765, inicio: int = 1, fin: int = 30) -> void:
-	var base_ip = "192.168.137."
-	async_func(base_ip, puerto, inicio, fin)
 
-# Función asíncrona para el escaneo
-func async_func(base_ip, puerto, inicio, fin) -> void:
+# --- Conexión ----------------------------------------------------------------
+
+func escanear_ips_y_conectar(puerto: int = 8765, inicio: int = 1, fin: int = 30) -> void:
+	_async_escanear("192.168.137.", puerto, inicio, fin)
+
+func _async_escanear(base_ip: String, puerto: int, inicio: int, fin: int) -> void:
 	await get_tree().process_frame
 	for i in range(inicio, fin + 1):
-		var ip = base_ip + str(i)
+		var ip       = base_ip + str(i)
 		var test_url = "ws://" + ip + ":" + str(puerto)
-		var ws = WebSocketPeer.new()
-		var err = ws.connect_to_url(test_url)
-		if err == OK:
-			var timeout = 1.0 # segundos
-			var t = 0.0
-			while ws.get_ready_state() == WebSocketPeer.STATE_CONNECTING and t < timeout:
-				ws.poll()
-				await get_tree().create_timer(0.1).timeout
-				t += 0.1
-			if ws.get_ready_state() == WebSocketPeer.STATE_OPEN:
-				url = test_url
-				label.text += "\n¡Servidor encontrado en: " + url + "\n"
-				ws.close()
-				conectar_servidor()
-				return
+		var ws       = WebSocketPeer.new()
+		if ws.connect_to_url(test_url) != OK:
+			continue
+		var t = 0.0
+		while ws.get_ready_state() == WebSocketPeer.STATE_CONNECTING and t < 1.0:
+			ws.poll()
+			await get_tree().create_timer(0.1).timeout
+			t += 0.1
+		if ws.get_ready_state() == WebSocketPeer.STATE_OPEN:
+			url = test_url
+			label.text += "Servidor encontrado en: " + url + "\n"
+			ws.close()
+			conectar_servidor()
+			return
 		ws.close()
-	label.text += "\nNo se encontró servidor WebSocket en el rango.\n"
+	label.text += "No se encontró servidor en el rango.\n"
 
-func conectar_servidor():
-	label.text += "Conectando a: " + str(url) + '\n'
-	var error = websocket.connect_to_url(url)
-	if error != OK:
-		label.text += "Error al intentar conectar: " + str(error) + '\n'
-		return
+func conectar_servidor() -> void:
+	label.text += "Conectando a: " + url + "\n"
+	if websocket.connect_to_url(url) != OK:
+		label.text += "Error al conectar\n"
 
-func _process(delta):
-	# Actualizar el estado del WebSocket
+
+# --- Loop principal ----------------------------------------------------------
+
+func _process(_delta: float) -> void:
 	websocket.poll()
-	
-	var estado = websocket.get_ready_state()
-	
-	match estado:
-		WebSocketPeer.STATE_CONNECTING:
-			# Aún conectando, no hacer nada
-			pass
-			
+	match websocket.get_ready_state():
 		WebSocketPeer.STATE_OPEN:
 			if not conectado:
-				label.text+="¡Conectado al servidor WebSocket!"+'\n'
+				label.text += "¡Conectado!\n"
 				conectado = true
-				enviar_mensaje()
-			else:
-				var error = websocket.send_text("estado_teclas")
-				if error != OK:
-					print("Error al enviar mensaje: "+str(error)+'\n')
-			
-			# Verificar si hay mensajes del servidor
 			while websocket.get_available_packet_count() > 0:
-				label.text=""
-				var mensaje = websocket.get_packet().get_string_from_utf8()
-				var info = mensaje.split(",")
-				if info.size() == 13:
-					var landmark_data = {}
-					for i in info:
-						var parts = i.split("_")
-						var lname = parts[0]
-						var vec = Vector3(int(parts[1])/100.0, 8-int(parts[2])/100.0, int(parts[3])/100.0)
-						landmark_data[lname] = vec
-					# Actualizar nodos según el mapeo
-					for lname in landmark_to_node.keys():
-						if landmark_data.has(lname):
-							node_refs[landmark_to_node[lname]].update_from_landmark(landmark_data[lname])
-					# Posicionar el player en la posición global de P0 si existe
-					if node_refs.has("P0"):
-						player.position = node_refs["P0"].global_position
-				
-		WebSocketPeer.STATE_CLOSING:
-			label.text+="Cerrando conexión..."+'\n'
-			
+				_procesar_mensaje(websocket.get_packet().get_string_from_utf8())
+
 		WebSocketPeer.STATE_CLOSED:
 			if conectado:
-				label.text+="Conexión cerrada"+'\n'
+				label.text += "Conexión cerrada\n"
 				conectado = false
 
-func enviar_mensaje():
-	if not conectado:
-		label.text+="No hay conexión WebSocket"+'\n'
-		return
-	
-	var mensaje = "¡Hola desde Godot WebSocket!"
-	label.text+="Enviando mensaje: "+str(mensaje)+'\n'
-	
-	var error = websocket.send_text(mensaje)
-	if error != OK:
-		label.text+="Error al enviar mensaje: "+str(error)+'\n'
 
-func desconectar():
+# --- Parseo de landmarks -----------------------------------------------------
+
+func _procesar_mensaje(raw: String) -> void:
+	var data = JSON.parse_string(raw)
+	if data == null or not data.has("landmarks"):
+		return
+	label.text = ""
+	for lm in data["landmarks"]:
+		var id = int(lm["id"])
+		if not node_refs.has(id):
+			continue
+		# x,y normalizados [0,1] → mundo centrado en 0; y invertido (0=arriba en imagen)
+		var x_world = (float(lm["x"]) - 0.5) * SCALE
+		var y_world = (0.5 - float(lm["y"])) * SCALE
+		var z_world = float(lm["z"]) * SCALE
+		node_refs[id].update_from_landmark(Vector3(x_world, y_world, z_world))
+	# Player sigue la nariz
+	if node_refs.has(0):
+		player.position = node_refs[0].global_position
+
+
+# --- Limpieza ----------------------------------------------------------------
+
+func desconectar() -> void:
 	if conectado:
 		websocket.close()
 		conectado = false
 
-func _exit_tree():
-	# Limpiar al salir
-	if conectado:
-		desconectar()
+func _exit_tree() -> void:
+	desconectar()

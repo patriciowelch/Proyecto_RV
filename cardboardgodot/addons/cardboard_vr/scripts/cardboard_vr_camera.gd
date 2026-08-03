@@ -71,11 +71,11 @@ func _process(delta: float) -> void:
 	RightEyePivot.global_position = Vector3(parent.global_position.x, parent.global_position.y + EyeHeight, parent.global_position.z )	
 	
 	if UseGysroscope:
-		var gyroscope = Input.get_gyroscope() * GysroscopeFactor
-		if RotateParent:			
-			parent.rotate_y(gyroscope.y * GysroscopeFactor)		
+		var gyroscope = Input.get_gyroscope()
+		if RotateParent:
+			parent.rotate_y(gyroscope.y * GysroscopeFactor)
 		LeftEyePivot.rotate_y(gyroscope.y * GysroscopeFactor)
-		RightEyePivot.rotate_y(gyroscope.y * GysroscopeFactor)		
+		RightEyePivot.rotate_y(gyroscope.y * GysroscopeFactor)
 		LeftEyePivot.rotate_object_local(Vector3.RIGHT, gyroscope.x * GysroscopeFactor)
 		RightEyePivot.rotate_object_local(Vector3.RIGHT, gyroscope.x * GysroscopeFactor)
 		LeftEyePivot.rotation.x = clamp(LeftEyePivot.rotation.x, deg_to_rad(-90), deg_to_rad(90))
