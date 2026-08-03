@@ -30,7 +30,7 @@ const AXIS_ROTATION_QUARTERS := 3
 ## Distancia del objetivo de fusión. Tiene que ser grande comparada con la
 ## separación de ojos o el objetivo cae fuera del frustum de un ojo.
 @export var TargetDistance : float = 30.0
-@export var TargetSize : float = 4.0
+@export var TargetSize : float = 10.0
 
 var camera: Node
 var lens_material: ShaderMaterial
@@ -113,6 +113,12 @@ func _build_target() -> void:
 	mat.albedo_texture = _make_cross_texture()
 	mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
 	mat.texture_filter = BaseMaterial3D.TEXTURE_FILTER_NEAREST
+	# Sin test de profundidad: la geometría del nivel (columnas, paredes) tapaba
+	# el objetivo y dejaba media cruz a la vista, que es justo lo que hay que
+	# poder comparar entre los dos ojos. Conserva su posición 3D real, así que
+	# la paralaje que se está calibrando sigue siendo la correcta.
+	mat.no_depth_test = true
+	mat.render_priority = 1
 
 	_target = MeshInstance3D.new()
 	_target.mesh = quad
