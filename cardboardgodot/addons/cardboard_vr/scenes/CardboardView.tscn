@@ -5,8 +5,8 @@
 
 [sub_resource type="ShaderMaterial" id="ShaderMaterial_76sec"]
 shader = ExtResource("1_gbn34")
-shader_parameter/k1 = 0.0
-shader_parameter/k2 = 0.0
+shader_parameter/k1 = 0.205
+shader_parameter/k2 = 0.5
 shader_parameter/aspect = 1.0
 shader_parameter/scale = 1.0
 shader_parameter/center = Vector2(0.5, 0.5)

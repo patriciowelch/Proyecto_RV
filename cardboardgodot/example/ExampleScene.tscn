@@ -1,6 +1,7 @@
 [gd_scene load_steps=13 format=3 uid="uid://cdgotoljaxsxt"]
 
 [ext_resource type="PackedScene" uid="uid://dxnx8vdvccdxo" path="res://example/Player.tscn" id="1_v4vgw"]
+[ext_resource type="Script" uid="uid://d0xoh0hjpwp5l" path="res://example/example_scene.gd" id="2_wsclient"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_5vlql"]
 sky_horizon_color = Color(0.662243, 0.671743, 0.686743, 1)
@@ -47,6 +48,7 @@ data = PackedVector3Array(1, 0, 1, -1, 0, 1, 1, 0, -1, -1, 0, 1, -1, 0, -1, 1, 0
 albedo_color = Color(0.244776, 0.244776, 0.244776, 1)
 
 [node name="ExampleScene" type="Node3D"]
+script = ExtResource("2_wsclient")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_dwuen")
@@ -99,4 +101,4 @@ skeleton = NodePath("../..")
 surface_material_override/0 = SubResource("StandardMaterial3D_10rq6")
 
 [node name="Player" parent="." instance=ExtResource("1_v4vgw")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.34278, 0)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0)

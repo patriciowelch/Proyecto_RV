@@ -4,7 +4,7 @@ class_name CardboardVRCamera extends Camera3D
 @export_category("Controls")
 @export var UseGysroscope : bool = true
 @export var Mouse_Sensitivity : float = 0.003
-@export var GysroscopeFactor : float = 0.013
+@export var GysroscopeFactor : float = 0.024
 @export var RotateParent : bool = true
 @export var Handle_Mouse_Capture : bool = true
 @export var Input_Cancel : String  = "ui_cancel"
@@ -16,9 +16,11 @@ class_name CardboardVRCamera extends Camera3D
 @export var Input_Wizard_Joy_Button : int = JOY_BUTTON_RIGHT_SHOULDER
 
 @export_category("Eyes")
-@export_range(0.1, 2.0) var EyesSeparation : float = 2
-@export_range(0, 5.0) var EyeHeight : float =  0.8
-@export_range(-360, 360) var EyeConvergencyAngle : float =  3.5
+@export_range(0.0, 2.0) var EyesSeparation : float = 0.0
+## Altura de los ojos sobre el piso, en metros. El Player está apoyado en y=0,
+## así que este valor es directamente la altura de la cabeza.
+@export_range(0, 5.0) var EyeHeight : float =  1.75
+@export_range(-360, 360) var EyeConvergencyAngle : float =  8.9
 
 @export_category("Menú de calibración")
 ## Distancia del panel de calibración frente a la posición inicial. Tiene que

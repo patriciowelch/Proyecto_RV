@@ -32,14 +32,14 @@ var lens_material: ShaderMaterial
 var world_panel: Node3D
 
 var param_defs := [
-	{"key": "eye_separation", "label": "Separación de ojos", "min": 0.01, "max": 2.0, "step": 0.005},
+	{"key": "eye_separation", "label": "Separación de ojos", "min": 0.0, "max": 2.0, "step": 0.005},
 	{"key": "eye_height", "label": "Altura de ojos", "min": 0.0, "max": 3.0, "step": 0.02},
 	{"key": "convergence", "label": "Ángulo de convergencia", "min": -30.0, "max": 30.0, "step": 0.5},
 	{"key": "use_gyro", "label": "Usar giroscopio", "bool": true},
 	{"key": "gyro_sens", "label": "Sensibilidad giroscopio", "min": 0.001, "max": 0.2, "step": 0.001},
 	{"key": "mouse_sens", "label": "Sensibilidad mouse", "min": 0.0005, "max": 0.02, "step": 0.0005},
-	{"key": "lens_k1", "label": "Distorsión lente k1", "min": -0.5, "max": 0.5, "step": 0.005},
-	{"key": "lens_k2", "label": "Distorsión lente k2", "min": -0.5, "max": 0.5, "step": 0.005},
+	{"key": "lens_k1", "label": "Distorsión lente k1", "min": -1.0, "max": 1.0, "step": 0.005},
+	{"key": "lens_k2", "label": "Distorsión lente k2", "min": -1.0, "max": 1.0, "step": 0.005},
 	{"key": "lens_scale", "label": "Escala de lente", "min": 0.5, "max": 1.5, "step": 0.01},
 ]
 

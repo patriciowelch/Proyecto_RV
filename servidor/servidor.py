@@ -1,11 +1,21 @@
 #!/usr/bin/env python3
 import asyncio
 import json
+import os
 import time
 import threading
 import websockets
 import cv2
 import mediapipe as mp
+from mediapipe.tasks import python as mp_python
+from mediapipe.tasks.python import vision
+
+# MediaPipe 1.0 eliminó la API legacy `mp.solutions`, así que se usa la API
+# Tasks, que necesita este modelo aparte (no viene con el paquete):
+#   https://storage.googleapis.com/mediapipe-models/pose_landmarker/
+#       pose_landmarker_lite/float16/1/pose_landmarker_lite.task
+MODEL_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                          "pose_landmarker_lite.task")
 
 LANDMARK_IDS = [0] + list(range(11, 17)) + [23, 24, 25, 26, 27, 28]
 
@@ -63,41 +73,52 @@ async def broadcast_loop():
                     await ws.send(mensaje)
                 except Exception:
                     muertos.add(ws)
-            clientes_conectados -= muertos
+            # In-place: `-=` rebindaría el nombre y lo volvería local a esta
+            # función, rompiendo la lectura de más arriba con UnboundLocalError.
+            clientes_conectados.difference_update(muertos)
         await asyncio.sleep(1 / 30)
 
 
 def bucle_mediapipe():
     global pos_nodos
-    mp_pose = mp.solutions.pose
+    if not os.path.exists(MODEL_PATH):
+        print(f"Falta el modelo: {MODEL_PATH}")
+        return
+
+    opciones = vision.PoseLandmarkerOptions(
+        base_options=mp_python.BaseOptions(model_asset_path=MODEL_PATH),
+        running_mode=vision.RunningMode.VIDEO,
+        num_poses=1,
+    )
     cap = cv2.VideoCapture(0)
-    with mp_pose.Pose(
-        static_image_mode=False,
-        min_detection_confidence=0.5,
-        min_tracking_confidence=0.5,
-    ) as pose:
+    if not cap.isOpened():
+        print("No se pudo abrir la cámara.")
+        return
+
+    with vision.PoseLandmarker.create_from_options(opciones) as landmarker:
         while True:
             ret, frame = cap.read()
             if not ret:
                 continue
             frame = cv2.flip(frame, 1)
-            image = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-            image.flags.writeable = False
-            results = pose.process(image)
-            image.flags.writeable = True
-            image_bgr = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
-            if results.pose_landmarks:
+            rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+            imagen = mp.Image(image_format=mp.ImageFormat.SRGB, data=rgb)
+            # detect_for_video exige timestamps crecientes en milisegundos.
+            resultado = landmarker.detect_for_video(imagen,
+                                                    int(time.monotonic() * 1000))
+            if resultado.pose_landmarks:
+                marcas = resultado.pose_landmarks[0]
                 for idx in LANDMARK_IDS:
-                    lm = results.pose_landmarks.landmark[idx]
+                    lm = marcas[idx]
                     pos_nodos[idx] = (lm.x, lm.y, lm.z)
                     x_px = int(lm.x * frame.shape[1])
                     y_px = int(lm.y * frame.shape[0])
-                    cv2.circle(image_bgr, (x_px, y_px), 6, (0, 255, 0), -1)
+                    cv2.circle(frame, (x_px, y_px), 6, (0, 255, 0), -1)
                     cv2.putText(
-                        image_bgr, f"N{idx}", (x_px + 8, y_px - 8),
+                        frame, f"N{idx}", (x_px + 8, y_px - 8),
                         cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 1,
                     )
-            cv2.imshow("MediaPipe Landmarks", image_bgr)
+            cv2.imshow("MediaPipe Landmarks", frame)
             if cv2.waitKey(1) & 0xFF == 27:
                 break
     cap.release()

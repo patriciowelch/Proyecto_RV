@@ -154,7 +154,8 @@ func _enter_phase(phase: int) -> void:
 		Phase.IPD:
 			_phase_label.text = "Fase 1 de 2 — Distancia interpupilar"
 			_instruction.text = "Ajustá hasta ver una sola figura nítida, sin doble. Arriba/abajo cambia entre separación y convergencia."
-			_pattern.set_pattern(CalibrationTestPattern.Pattern.CROSS)
+			# Sin retícula: encima del objetivo resultaba incómoda a la vista.
+			_pattern.set_pattern(CalibrationTestPattern.Pattern.NONE)
 			_next_button.text = "Siguiente"
 			if _target:
 				_target.visible = true
@@ -207,7 +208,7 @@ func _adjust(dir: int) -> void:
 		Phase.LENS:
 			var key := "k1" if _selected_param == 0 else "k2"
 			var v: float = lens_material.get_shader_parameter(key)
-			lens_material.set_shader_parameter(key, clampf(v + dir * K_STEP, -0.5, 0.5))
+			lens_material.set_shader_parameter(key, clampf(v + dir * K_STEP, -1.0, 1.0))
 	_refresh()
 
 
