@@ -63,6 +63,22 @@ const BONES := [
 ## cabeza frente a la cámara mueve el punto de vista en VR.
 @export var FollowHead : bool = true
 
+@export_category("Esqueleto de debug")
+## Segundo esqueleto, fijo en el mundo y más adelante que el principal. Con
+## FollowHead activo el jugador termina dentro del esqueleto principal (su
+## cabeza ES el landmark 0), así que hace falta una copia separada para poder
+## mirar de afuera qué movimientos están llegando.
+@export var ShowDebugSkeleton : bool = true
+## Cuánto más adelante que el esqueleto principal, en metros.
+@export var DebugDistance : float = 3.0
+## Altura a la que se fija la cadera del esqueleto de debug. Se ancla ahí y no
+## al centro del encuadre porque MediaPipe devuelve y fuera de [0,1] cuando el
+## cuerpo se sale de cámara (sentado y cerca, los tobillos llegan a y≈2.4), y
+## centrar en 0.5 dejaba medio esqueleto metros bajo el piso.
+@export var DebugHipHeight : float = 1.2
+## Escala del esqueleto de debug, para que entre entero en el campo de visión.
+@export var DebugScale : float = 0.5
+
 @export_category("Suavizado")
 ## Frecuencia de corte mínima, en Hz. Más bajo = más suave y más lento.
 @export var MinCutoff : float = 1.2
@@ -79,13 +95,16 @@ var url := ""
 var conectado := false
 
 var _cloud: Node3D
+var _debug_cloud: Node3D
 var _player: Node3D
 var _camera: Node
 var _points: Dictionary = {}
+var _bones: Dictionary = {}
+var _debug_points: Dictionary = {}
+var _debug_bones: Dictionary = {}
 ## Última posición cruda recibida por red, antes de filtrar.
 var _targets: Dictionary = {}
 var _filters: Dictionary = {}
-var _bones: Dictionary = {}
 var _status: Label3D
 var _reconnect_timer := 0.0
 var _scanning := false
@@ -110,37 +129,25 @@ func _build_cloud() -> void:
 	# Alineado con el -Z del mundo, que es adonde mira la vista al recentrar.
 	_cloud.global_position = origin + Vector3(0, CloudHeight, -CloudDistance)
 
-	var point_mat := StandardMaterial3D.new()
-	point_mat.albedo_color = Color(0.2, 1.0, 0.4)
-	point_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-
-	var bone_mat := StandardMaterial3D.new()
-	bone_mat.albedo_color = Color(0.2, 0.7, 1.0)
-	bone_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-
 	for id in LANDMARK_IDS:
-		var sphere := SphereMesh.new()
-		sphere.radius = PointRadius
-		sphere.height = PointRadius * 2.0
-		var mi := MeshInstance3D.new()
-		mi.mesh = sphere
-		mi.material_override = point_mat
-		_cloud.add_child(mi)
-		_points[id] = mi
 		_targets[id] = Vector3.ZERO
 		var corte := MinCutoff * (HeadCutoffFactor if id == 0 else 1.0)
 		_filters[id] = OneEuro.new(corte, SmoothBeta)
 
-	for bone in BONES:
-		var cyl := CylinderMesh.new()
-		cyl.top_radius = PointRadius * 0.4
-		cyl.bottom_radius = PointRadius * 0.4
-		cyl.height = 1.0
-		var mi := MeshInstance3D.new()
-		mi.mesh = cyl
-		mi.material_override = bone_mat
-		_cloud.add_child(mi)
-		_bones[bone] = mi
+	_armar_esqueleto(_cloud, _points, _bones,
+		Color(0.2, 1.0, 0.4), Color(0.2, 0.7, 1.0), 1.0)
+
+	if ShowDebugSkeleton:
+		_debug_cloud = Node3D.new()
+		add_child(_debug_cloud)
+		_debug_cloud.global_position = Vector3(
+			_cloud.global_position.x,
+			DebugHipHeight,
+			_cloud.global_position.z - DebugDistance)
+		_debug_cloud.scale = Vector3.ONE * DebugScale
+		# En otro color para no confundirlo con el que controla la vista.
+		_armar_esqueleto(_debug_cloud, _debug_points, _debug_bones,
+			Color(1.0, 0.6, 0.1), Color(1.0, 0.35, 0.35), 1.4)
 
 	_status = Label3D.new()
 	_status.billboard = BaseMaterial3D.BILLBOARD_ENABLED
@@ -149,6 +156,41 @@ func _build_cloud() -> void:
 	_status.modulate = Color(1, 1, 0.4)
 	_status.position = Vector3(0, 2.2, 0)
 	_cloud.add_child(_status)
+
+
+## Arma un esqueleto (esferas + huesos) bajo `parent` y deja las referencias en
+## los diccionarios que se le pasan, para poder instanciarlo más de una vez.
+func _armar_esqueleto(parent: Node3D, puntos: Dictionary, huesos: Dictionary,
+		color_punto: Color, color_hueso: Color, escala: float) -> void:
+	var point_mat := StandardMaterial3D.new()
+	point_mat.albedo_color = color_punto
+	point_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+
+	var bone_mat := StandardMaterial3D.new()
+	bone_mat.albedo_color = color_hueso
+	bone_mat.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+
+	var radio := PointRadius * escala
+	for id in LANDMARK_IDS:
+		var sphere := SphereMesh.new()
+		sphere.radius = radio
+		sphere.height = radio * 2.0
+		var mi := MeshInstance3D.new()
+		mi.mesh = sphere
+		mi.material_override = point_mat
+		parent.add_child(mi)
+		puntos[id] = mi
+
+	for bone in BONES:
+		var cyl := CylinderMesh.new()
+		cyl.top_radius = radio * 0.4
+		cyl.bottom_radius = radio * 0.4
+		cyl.height = 1.0
+		var mi := MeshInstance3D.new()
+		mi.mesh = cyl
+		mi.material_override = bone_mat
+		parent.add_child(mi)
+		huesos[bone] = mi
 
 
 func _set_status(t: String) -> void:
@@ -245,8 +287,28 @@ func _process(delta: float) -> void:
 func _suavizar(delta: float) -> void:
 	for id in _points:
 		_points[id].position = _filters[id].filtrar(_targets[id], delta)
+
+	# El esqueleto de debug acompaña al jugador: con FollowHead el jugador se
+	# mueve adonde caiga la nariz, así que uno fijo en el mundo se pierde de
+	# vista apenas empieza a llegar movimiento.
+	if _debug_cloud and _player:
+		_debug_cloud.global_position = Vector3(
+			_player.global_position.x,
+			_player.global_position.y + DebugHipHeight,
+			_player.global_position.z - DebugDistance)
+
+	if not _debug_points.is_empty():
+		# El esqueleto de debug se recentra en la cadera cada frame, así queda
+		# entero a la vista sin importar cómo esté encuadrada la persona.
+		var cadera := Vector3.ZERO
+		if _points.has(23) and _points.has(24):
+			cadera = (_points[23].position + _points[24].position) * 0.5
+		for id in _debug_points:
+			_debug_points[id].position = _points[id].position - cadera
 	for bone in BONES:
-		_update_bone(bone)
+		_update_bone(bone, _points, _bones)
+		if not _debug_bones.is_empty():
+			_update_bone(bone, _debug_points, _debug_bones)
 	if FollowHead:
 		_mover_cabeza()
 
@@ -292,10 +354,10 @@ func _mover_cabeza() -> void:
 
 
 ## Estira y orienta el cilindro entre los dos landmarks del hueso.
-func _update_bone(bone: Array) -> void:
-	var a: MeshInstance3D = _points.get(bone[0])
-	var b: MeshInstance3D = _points.get(bone[1])
-	var mi: MeshInstance3D = _bones.get(bone)
+func _update_bone(bone: Array, puntos: Dictionary, huesos: Dictionary) -> void:
+	var a: MeshInstance3D = puntos.get(bone[0])
+	var b: MeshInstance3D = puntos.get(bone[1])
+	var mi: MeshInstance3D = huesos.get(bone)
 	if a == null or b == null or mi == null:
 		return
 	var delta := b.position - a.position
