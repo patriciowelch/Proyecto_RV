@@ -13,7 +13,7 @@ config_version=5
 config/name="CardboardGodot"
 config/features=PackedStringArray("4.4", "GL Compatibility")
 config/icon="res://icon.svg"
-run/main_scene="res://example/ExampleScene.tscn"
+run/main_scene="res://escenario/Escenario.tscn"
 config/quit_on_go_back=false
 
 [display]
