@@ -19,6 +19,9 @@ var pose: Dictionary = {}
 
 var _mat: StandardMaterial3D
 var _detenido := false
+# Marcadores de feedback por articulacion (uno por landmark del jugador).
+var _marcadores: Array = []
+var _mats_marc: Array = []
 
 func configurar(p: Dictionary, vel: float, z_eval: float) -> void:
 	pose = p
@@ -92,6 +95,43 @@ func _dentro(p: Vector2) -> bool:
 		if p.distance_to(cp) <= r:
 			return true
 	return false
+
+## Feedback en vivo: coloca un marcador por cada articulacion del jugador sobre
+## la cara del muro (la que mira al jugador) y lo pinta VERDE si esa parte ya
+## esta dentro del agujero, ROJO si todavia hay que corregirla. Devuelve cuantas
+## quedaron verdes. Se puede llamar cada frame mientras el muro se acerca.
+func actualizar_feedback(puntos: Array) -> int:
+	if _marcadores.size() != puntos.size():
+		_reset_marcadores(puntos.size())
+	var verdes := 0
+	var zf := espesor * 0.5 + 0.06   # apenas por delante de la cara frontal
+	for i in puntos.size():
+		var p: Vector2 = puntos[i]
+		var ok := _dentro(p)
+		_marcadores[i].position = Vector3(p.x, p.y, zf)
+		_mats_marc[i].albedo_color = Color(0.2, 0.85, 0.35) if ok else Color(0.9, 0.25, 0.25)
+		if ok:
+			verdes += 1
+	return verdes
+
+func _reset_marcadores(n: int) -> void:
+	for m in _marcadores:
+		m.queue_free()
+	_marcadores.clear()
+	_mats_marc.clear()
+	for i in range(n):
+		var e := MeshInstance3D.new()
+		var s := SphereMesh.new()
+		s.radius = 0.14
+		s.height = 0.28
+		e.mesh = s
+		var mm := StandardMaterial3D.new()
+		mm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+		mm.albedo_color = Color(0.9, 0.25, 0.25)
+		e.material_override = mm
+		add_child(e)
+		_marcadores.append(e)
+		_mats_marc.append(mm)
 
 func marcar(paso: bool) -> void:
 	_mat.albedo_color = Color(0.2, 0.8, 0.35) if paso else Color(0.9, 0.25, 0.25)
