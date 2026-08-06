@@ -41,12 +41,20 @@ func _ocultar_agua_glb() -> void:
 			(w as Node3D).visible = false
 
 func _crear_bienvenida() -> void:
-	_bienvenida = _nuevo_label(Vector3(0, 0.6, 0), 0.007)
+	# A la altura de los ojos (la nube esta a CloudHeight) y un poco mas lejos
+	# que el origen de la nube, para no quedar encima del esqueleto. El -Z local
+	# de la nube es el lado contrario al jugador, asi que resta distancia.
+	_bienvenida = _nuevo_label(Vector3(0, 0.75, -1.5), 0.0105)
 	_bienvenida.text = "HOLE IN THE WALL VR\n\nImita la figura de cada muro\nque se acerca.\n\nBoton 2 o 3 para empezar"
 
 func _nuevo_label(pos: Vector3, tam: float) -> Label3D:
 	var l := Label3D.new()
-	l.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	# Sin billboard: las dos camaras de ojo tienen convergencia, asi que cada una
+	# lo orientaria distinto y el texto no fusiona en estereo. Colgado de la nube
+	# con rotacion cero ya mira al jugador, porque el +Z local de la nube apunta
+	# hacia el. Mismo criterio que el panel de calibracion del addon.
+	l.billboard = BaseMaterial3D.BILLBOARD_DISABLED
+	l.rotation = Vector3.ZERO
 	l.no_depth_test = true
 	l.pixel_size = tam
 	l.modulate = Color(1, 1, 0.55)

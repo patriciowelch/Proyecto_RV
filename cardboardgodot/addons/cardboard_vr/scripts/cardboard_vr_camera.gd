@@ -49,6 +49,14 @@ var parent : CharacterBody3D = get_parent()
 
 ## Orientación del cuerpo al arrancar, para poder volver a ella al recentrar.
 var _initial_parent_rotation : Vector3 = Vector3.ZERO
+## Hacia dónde mira el cuerpo tal como quedó puesto en la escena, y su yaw.
+## Los pivotes de ojo cuelgan de los SubViewport, no del jugador, así que su
+## rotación es absoluta del mundo: hay que alinearlos a mano con esta dirección
+## o la vista arranca (y recentra) mirando al -Z del mundo sin importar cómo
+## esté girado el jugador. Se toma de la base y no del euler porque un giro de
+## 180° admite más de una descomposición en ángulos.
+var _frente_inicial : Vector3 = Vector3.FORWARD
+var _yaw_inicial : float = 0.0
 
 func _input(event):
 	if not Active:
@@ -98,6 +106,12 @@ func _ready() -> void:
 	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 	parent = get_parent()
 	_initial_parent_rotation = parent.rotation
+	_frente_inicial = -parent.global_transform.basis.z
+	_frente_inicial.y = 0.0
+	if _frente_inicial.length() < 0.001:
+		_frente_inicial = Vector3.FORWARD
+	_frente_inicial = _frente_inicial.normalized()
+	_yaw_inicial = atan2(-_frente_inicial.x, -_frente_inicial.z)
 	LeftEyePivot.add_child(left_camera_3d)
 	LeftEyeSubViewPort.add_child(LeftEyePivot)
 	RightEyePivot.add_child(right_camera_3d)	
@@ -112,6 +126,7 @@ func _ready() -> void:
 	LeftEyePivot.position.y = EyeHeight
 	RightEyePivot.position.y = EyeHeight
 	apply_eye_transform()
+	_alinear_vista()
 	# Diferido: el panel se cuelga del padre del jugador, que en este momento
 	# todavía está instanciando sus hijos y rechazaría un add_child.
 	_create_world_menu.call_deferred()
@@ -148,14 +163,13 @@ func _create_world_menu() -> void:
 		world_root = get_tree().current_scene
 	world_root.add_child(MenuPanel)
 
-	# Se alinea con el mundo, no con la rotación del cuerpo: los pivotes de ojo
-	# no cuelgan del jugador y recenter() los deja en rotación cero, así que la
-	# vista recentrada mira al -Z del mundo. Ubicarlo ahí garantiza que el panel
-	# quede siempre de frente al recentrar.
+	# Se alinea con el frente del escenario, que es adonde deja la vista tanto el
+	# arranque como recenter(). Ubicarlo ahí garantiza que el panel quede
+	# siempre de frente al recentrar.
 	MenuPanel.global_position = parent.global_position \
 		+ Vector3(0, EyeHeight, 0) \
-		+ Vector3(0, 0, -MenuDistance)
-	MenuPanel.global_rotation = Vector3.ZERO
+		+ _frente_inicial * MenuDistance
+	MenuPanel.global_rotation = Vector3(0, _yaw_inicial, 0)
 
 	menu.setup(self, View.get_lens_material(), MenuPanel)
 
@@ -187,12 +201,27 @@ func apply_eye_transform() -> void:
 	left_camera_3d.rotate_object_local(Vector3.UP, deg_to_rad(EyeConvergencyAngle))
 	right_camera_3d.rotate_object_local(Vector3.UP, -deg_to_rad(EyeConvergencyAngle))
 
+## Dirección "al frente" del escenario: la que mira el jugador tal como quedó
+## puesto en la escena. Lo usan la nube de landmarks y el asistente para
+## ubicarse delante de la vista en vez de asumir el -Z del mundo.
+func frente_inicial() -> Vector3:
+	return _frente_inicial
+
+func yaw_inicial() -> float:
+	return _yaw_inicial
+
+## Deja los dos ojos mirando al frente del escenario. Su rotación es absoluta
+## (cuelgan de los SubViewport), así que ponerlos en cero los mandaría al -Z del
+## mundo y la vista arrancaría girada respecto del cuerpo.
+func _alinear_vista() -> void:
+	LeftEyePivot.rotation = Vector3(0.0, _yaw_inicial, 0.0)
+	RightEyePivot.rotation = Vector3(0.0, _yaw_inicial, 0.0)
+
 ## Devuelve la vista a su orientación inicial. Hace falta porque el giroscopio
 ## se integra por acumulación y va derivando, así que la vista termina girada
 ## respecto del cuerpo aunque la cabeza esté al frente.
 func recenter() -> void:
-	LeftEyePivot.rotation = Vector3.ZERO
-	RightEyePivot.rotation = Vector3.ZERO
+	_alinear_vista()
 	if RotateParent and parent:
 		parent.rotation = _initial_parent_rotation
 

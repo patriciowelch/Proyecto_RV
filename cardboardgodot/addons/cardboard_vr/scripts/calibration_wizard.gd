@@ -128,11 +128,12 @@ func _build_target() -> void:
 	if world_root == null:
 		world_root = get_tree().current_scene
 	world_root.add_child(_target)
-	# Alineado con el -Z del mundo, que es adonde mira la vista al recentrar.
+	# Alineado con el frente del escenario, que es adonde mira la vista al
+	# arrancar y al recentrar.
 	_target.global_position = camera.parent.global_position \
 		+ Vector3(0, camera.EyeHeight, 0) \
-		+ Vector3(0, 0, -TargetDistance)
-	_target.global_rotation = Vector3.ZERO
+		+ camera.frente_inicial() * TargetDistance
+	_target.global_rotation = Vector3(0, camera.yaw_inicial(), 0)
 
 
 func _make_cross_texture(px: int = 256) -> ImageTexture:

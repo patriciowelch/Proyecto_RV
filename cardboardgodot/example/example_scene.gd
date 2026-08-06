@@ -97,6 +97,11 @@ var conectado := false
 var _cloud: Node3D
 var _debug_cloud: Node3D
 var _player: Node3D
+## Frente del escenario: adonde mira el jugador tal como quedó puesto en la
+## escena. Se calcula una sola vez al arrancar, porque la rotación viva del
+## jugador va derivando con el giroscopio y arrastraría la nube con ella.
+var _frente: Vector3 = Vector3.FORWARD
+var _yaw: float = 0.0
 var _camera: Node
 var _points: Dictionary = {}
 var _bones: Dictionary = {}
@@ -126,8 +131,18 @@ func _build_cloud() -> void:
 	if _player:
 		_camera = _player.get_node_or_null("CardboardVRCamera3D")
 	var origin: Vector3 = Vector3.ZERO if _player == null else _player.global_position
-	# Alineado con el -Z del mundo, que es adonde mira la vista al recentrar.
-	_cloud.global_position = origin + Vector3(0, CloudHeight, -CloudDistance)
+	if _player:
+		_frente = -_player.global_transform.basis.z
+		_frente.y = 0.0
+		if _frente.length() < 0.001:
+			_frente = Vector3.FORWARD
+		_frente = _frente.normalized()
+		_yaw = atan2(-_frente.x, -_frente.z)
+	# Delante del jugador según su rotación en la escena, que es adonde mira la
+	# vista al arrancar y al recentrar. La nube se gira con él, así que los muros
+	# (que cuelgan de acá y viajan hacia su +Z local) llegan siempre de frente.
+	_cloud.global_position = origin + Vector3(0, CloudHeight, 0) + _frente * CloudDistance
+	_cloud.global_rotation = Vector3(0, _yaw, 0)
 
 	for id in LANDMARK_IDS:
 		_targets[id] = Vector3.ZERO
@@ -140,10 +155,9 @@ func _build_cloud() -> void:
 	if ShowDebugSkeleton:
 		_debug_cloud = Node3D.new()
 		add_child(_debug_cloud)
-		_debug_cloud.global_position = Vector3(
-			_cloud.global_position.x,
-			DebugHipHeight,
-			_cloud.global_position.z - DebugDistance)
+		_debug_cloud.global_position = _cloud.global_position + _frente * DebugDistance
+		_debug_cloud.global_position.y = DebugHipHeight
+		_debug_cloud.global_rotation = Vector3(0, _yaw, 0)
 		_debug_cloud.scale = Vector3.ONE * DebugScale
 		# En otro color para no confundirlo con el que controla la vista.
 		_armar_esqueleto(_debug_cloud, _debug_points, _debug_bones,
@@ -292,10 +306,8 @@ func _suavizar(delta: float) -> void:
 	# mueve adonde caiga la nariz, así que uno fijo en el mundo se pierde de
 	# vista apenas empieza a llegar movimiento.
 	if _debug_cloud and _player:
-		_debug_cloud.global_position = Vector3(
-			_player.global_position.x,
-			_player.global_position.y + DebugHipHeight,
-			_player.global_position.z - DebugDistance)
+		_debug_cloud.global_position = _player.global_position \
+			+ Vector3(0, DebugHipHeight, 0) + _frente * DebugDistance
 
 	if not _debug_points.is_empty():
 		# El esqueleto de debug se recentra en la cadera cada frame, así queda
