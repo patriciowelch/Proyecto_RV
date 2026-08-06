@@ -1,6 +1,8 @@
-[gd_scene load_steps=5 format=3 uid="uid://2ai3x81qftai4"]
+[gd_scene load_steps=9 format=3 uid="uid://2ai3x81qftai4"]
 
 [ext_resource type="PackedScene" uid="uid://27urw9mdizvwe" path="res://escenario/swimming_pool.glb" id="1_pool"]
+[ext_resource type="Script" path="res://escenario/escenario.gd" id="2_scr"]
+[ext_resource type="Shader" path="res://escenario/agua.gdshader" id="3_shader"]
 
 [sub_resource type="ProceduralSkyMaterial" id="ProceduralSkyMaterial_esc"]
 sky_horizon_color = Color(0.64625, 0.65625, 0.67075, 1)
@@ -15,7 +17,22 @@ sky = SubResource("Sky_esc")
 ambient_light_source = 3
 tonemap_mode = 2
 
+[sub_resource type="PlaneMesh" id="PlaneMesh_agua"]
+size = Vector2(8.11, 8.11)
+subdivide_width = 24
+subdivide_depth = 24
+
+[sub_resource type="ShaderMaterial" id="ShaderMaterial_agua"]
+render_priority = 0
+shader = ExtResource("3_shader")
+shader_parameter/color_shallow = Color(0.16, 0.56, 0.6, 0.55)
+shader_parameter/color_deep = Color(0, 0.28, 0.42, 0.82)
+shader_parameter/wave_speed = 0.6
+shader_parameter/wave_height = 0.04
+shader_parameter/wave_freq = 1.2
+
 [node name="Escenario" type="Node3D"]
+script = ExtResource("2_scr")
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
 environment = SubResource("Environment_esc")
@@ -25,3 +42,8 @@ transform = Transform3D(-0.866025, -0.433013, 0.25, 0, 0.5, 0.866025, -0.5, 0.75
 shadow_enabled = true
 
 [node name="SwimmingPool" parent="." instance=ExtResource("1_pool")]
+
+[node name="Agua" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.75, -0.078, -2.5)
+mesh = SubResource("PlaneMesh_agua")
+surface_material_override/0 = SubResource("ShaderMaterial_agua")
