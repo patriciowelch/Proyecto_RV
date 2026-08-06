@@ -1,38 +1,76 @@
 class_name Figuras
 
-## Figuras (agujeros) como poligono 2D en el plano XY del muro, en las mismas
-## unidades que la nube de landmarks. Cada figura deberia corresponder a una
-## pose humana alcanzable. El mismo poligono se usa para tallar el muro (CSG)
-## y para el chequeo punto-en-poligono.
+## Cada figura es un ESQUELETO (huesos + cabeza) en coordenadas del plano del
+## muro (x derecha, y arriba), en las mismas unidades que la nube de landmarks.
+## El mismo esqueleto talla el agujero (union de huesos, restada al muro) y
+## sirve para el chequeo (cada landmark del jugador debe caer sobre algun hueso).
+## Las 9 poses replican el storyboard de sticks provisto.
 
-# Parado, brazos al cuerpo (rectangulo alto que incluye la cabeza).
-const PARADO := PackedVector2Array([
-	Vector2(-0.7, 1.8), Vector2(0.7, 1.8),
-	Vector2(0.7, -2.3), Vector2(-0.7, -2.3),
-])
+const CUELLO := Vector2(0.0, 1.05)
+const CADERA := Vector2(0.0, -0.35)
 
-# Brazos en cruz (forma de T).
-const BRAZOS_EN_T := PackedVector2Array([
-	Vector2(0.0, 1.9), Vector2(0.55, 1.5), Vector2(0.55, 1.15),
-	Vector2(2.1, 1.15), Vector2(2.1, 0.65), Vector2(0.55, 0.65),
-	Vector2(0.55, -2.3), Vector2(-0.55, -2.3), Vector2(-0.55, 0.65),
-	Vector2(-2.1, 0.65), Vector2(-2.1, 1.15), Vector2(-0.55, 1.15),
-	Vector2(-0.55, 1.5),
-])
-
-# Salto de estrella: brazos arriba en diagonal, piernas abiertas (forma de X).
-const ESTRELLA := PackedVector2Array([
-	Vector2(0.0, 2.0), Vector2(0.5, 1.4),
-	Vector2(2.0, 1.7), Vector2(0.85, 0.5),
-	Vector2(1.5, -2.3), Vector2(0.2, -0.7),
-	Vector2(-0.2, -0.7), Vector2(-1.5, -2.3),
-	Vector2(-0.85, 0.5), Vector2(-2.0, 1.7),
-	Vector2(-0.5, 1.4),
-])
+## codo/muneca = brazos ; rodilla/tobillo = piernas ; i=izquierda d=derecha
+static func _pose(nombre: String, cabeza: Vector2,
+		ci: Vector2, mi: Vector2, cd: Vector2, md: Vector2,
+		ri: Vector2, ti: Vector2, rd: Vector2, td: Vector2) -> Dictionary:
+	return {
+		"nombre": nombre,
+		"cabeza": cabeza,
+		"huesos": [
+			[CUELLO, CADERA],
+			[CUELLO, cabeza],
+			[CUELLO, ci], [ci, mi],
+			[CUELLO, cd], [cd, md],
+			[CADERA, ri], [ri, ti],
+			[CADERA, rd], [rd, td],
+		],
+	}
 
 static func todas() -> Array:
-	return [PARADO, BRAZOS_EN_T, ESTRELLA]
-
-static func aleatoria() -> PackedVector2Array:
-	var t := todas()
-	return t[randi() % t.size()]
+	return [
+		_pose("Agacharse", Vector2(-0.15, 1.65),
+			Vector2(0.30, 0.55), Vector2(0.75, 0.05),
+			Vector2(0.40, 0.45), Vector2(0.95, -0.05),
+			Vector2(-0.20, -1.10), Vector2(-0.30, -1.90),
+			Vector2(0.20, -1.10), Vector2(0.30, -1.90)),
+		_pose("Correr", Vector2(0.10, 1.65),
+			Vector2(-0.35, 0.65), Vector2(-0.50, 0.25),
+			Vector2(0.35, 1.10), Vector2(0.45, 1.50),
+			Vector2(-0.35, -1.15), Vector2(-0.70, -1.60),
+			Vector2(0.45, -0.85), Vector2(0.30, -1.40)),
+		_pose("Brazos a la derecha", Vector2(0.0, 1.65),
+			Vector2(0.40, 1.00), Vector2(0.95, 0.95),
+			Vector2(0.45, 0.90), Vector2(1.05, 0.85),
+			Vector2(-0.20, -1.10), Vector2(-0.22, -1.90),
+			Vector2(0.20, -1.10), Vector2(0.22, -1.90)),
+		_pose("Brazos arriba en V", Vector2(0.0, 1.65),
+			Vector2(-0.50, 1.40), Vector2(-0.90, 1.80),
+			Vector2(0.50, 1.40), Vector2(0.90, 1.80),
+			Vector2(-0.30, -1.10), Vector2(-0.40, -1.90),
+			Vector2(0.30, -1.10), Vector2(0.40, -1.90)),
+		_pose("Estrella (cuclillas)", Vector2(0.0, 1.65),
+			Vector2(-0.55, 1.05), Vector2(-1.15, 1.10),
+			Vector2(0.55, 1.05), Vector2(1.15, 1.10),
+			Vector2(-0.70, -0.95), Vector2(-1.15, -1.55),
+			Vector2(0.70, -0.95), Vector2(1.15, -1.55)),
+		_pose("Brazos abajo en V", Vector2(0.0, 1.65),
+			Vector2(-0.50, 0.55), Vector2(-0.95, 0.10),
+			Vector2(0.50, 0.55), Vector2(0.95, 0.10),
+			Vector2(-0.20, -1.10), Vector2(-0.22, -1.90),
+			Vector2(0.20, -1.10), Vector2(0.22, -1.90)),
+		_pose("Un brazo arriba (inclinado)", Vector2(-0.15, 1.65),
+			Vector2(-0.30, 0.60), Vector2(-0.35, 0.10),
+			Vector2(0.25, 1.40), Vector2(-0.05, 1.75),
+			Vector2(-0.20, -1.10), Vector2(-0.15, -1.90),
+			Vector2(0.15, -1.10), Vector2(0.20, -1.90)),
+		_pose("Circulo sobre la cabeza", Vector2(0.0, 1.50),
+			Vector2(-0.50, 1.35), Vector2(-0.15, 1.95),
+			Vector2(0.50, 1.35), Vector2(0.15, 1.95),
+			Vector2(-0.35, -1.10), Vector2(-0.50, -1.90),
+			Vector2(0.35, -1.10), Vector2(0.50, -1.90)),
+		_pose("Un brazo recto arriba", Vector2(0.0, 1.65),
+			Vector2(-0.35, 0.60), Vector2(-0.45, 0.15),
+			Vector2(0.30, 1.45), Vector2(0.50, 2.00),
+			Vector2(-0.20, -1.10), Vector2(-0.20, -1.90),
+			Vector2(0.20, -1.10), Vector2(0.20, -1.90)),
+	]
