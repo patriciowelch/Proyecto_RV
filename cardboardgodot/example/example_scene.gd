@@ -53,22 +53,36 @@ const BONES := [
 @export var SubnetBase : String = "192.168.137."
 @export var ScanUpTo : int = 20
 ## Todo en metros: el mundo es métrico y el Player está apoyado en y=0.
-@export var CloudDistance : float = 3.0
+## En 0 la nube queda centrada EN el jugador, que es lo que corresponde con
+## FollowHead: sus ojos van sobre el landmark 0, así que él *es* el esqueleto.
+## Con la nube adelantada el esqueleto se le planta enfrente y le tapa el muro.
+@export var CloudDistance : float = 0.0
 @export var CloudHeight : float = 1.0
 ## Metros de mundo por unidad normalizada de MediaPipe.
 @export var CloudScale : float = 2.0
+## Cuanto de la profundidad de MediaPipe se aplica. En 0 la nube queda plana.
+## La z de MediaPipe es una estimacion ruidosa y en metros de mundo empujaba al
+## jugador varios metros hacia adelante, hasta el borde del piso que rodea la
+## pileta. El juego compara siluetas en 2D, asi que no se pierde nada.
+@export var LandmarkDepth : float = 0.0
 @export var PointRadius : float = 0.06
 ## Si está activo, el landmark 0 (nose, la cabeza) pasa a ser la cabeza del
 ## jugador: los ojos se ubican exactamente en ese punto, así que mover la
 ## cabeza frente a la cámara mueve el punto de vista en VR.
 @export var FollowHead : bool = true
+## Cuánto sobresale la cabeza por encima de la cadera con la persona de pie, en
+## múltiplos del torso, y el torso del cuerpo de referencia en metros. Con estos
+## dos, la altura de los ojos sale de la POSTURA y no de cómo quedó encuadrada la
+## persona: parado da EyeHeight, agachado baja en proporción.
+@export var CabezaSobreCaderaDePie : float = 1.405
+@export var TorsoMetros : float = 0.546
 
 @export_category("Esqueleto de debug")
 ## Segundo esqueleto, fijo en el mundo y más adelante que el principal. Con
 ## FollowHead activo el jugador termina dentro del esqueleto principal (su
 ## cabeza ES el landmark 0), así que hace falta una copia separada para poder
 ## mirar de afuera qué movimientos están llegando.
-@export var ShowDebugSkeleton : bool = true
+@export var ShowDebugSkeleton : bool = false
 ## Cuánto más adelante que el esqueleto principal, en metros.
 @export var DebugDistance : float = 3.0
 ## Altura a la que se fija la cadera del esqueleto de debug. Se ancla ahí y no
@@ -102,6 +116,9 @@ var _player: Node3D
 ## jugador va derivando con el giroscopio y arrastraría la nube con ella.
 var _frente: Vector3 = Vector3.FORWARD
 var _yaw: float = 0.0
+## Donde quedo el jugador en la escena. Es su sitio en el escenario: los
+## landmarks lo mueven alrededor de este punto, no a coordenadas absolutas.
+var _pos_inicial: Vector3 = Vector3.ZERO
 var _camera: Node
 var _points: Dictionary = {}
 var _bones: Dictionary = {}
@@ -131,6 +148,7 @@ func _build_cloud() -> void:
 	if _player:
 		_camera = _player.get_node_or_null("CardboardVRCamera3D")
 	var origin: Vector3 = Vector3.ZERO if _player == null else _player.global_position
+	_pos_inicial = origin
 	if _player:
 		_frente = -_player.global_transform.basis.z
 		_frente.y = 0.0
@@ -341,7 +359,7 @@ func _procesar(raw: String) -> void:
 		_targets[id] = Vector3(
 			(float(lm["x"]) - 0.5) * CloudScale,
 			(0.5 - float(lm["y"])) * CloudScale,
-			float(lm["z"]) * CloudScale)
+			float(lm["z"]) * CloudScale * LandmarkDepth)
 
 	_frames += 1
 	if _frames % 30 == 0:
@@ -354,15 +372,45 @@ func _procesar(raw: String) -> void:
 func _mover_cabeza() -> void:
 	if _player == null or not _points.has(0):
 		return
-	var cabeza: Vector3 = _cloud.to_global(_points[0].position)
-	var altura_ojos: float = 1.75
-	if _camera:
-		altura_ojos = _camera.EyeHeight
-	_player.global_position = cabeza - Vector3(0, altura_ojos, 0)
+	# Del landmark solo se toma el corrimiento lateral y cuánto se agachó: el
+	# sitio en el escenario es el que quedó en la escena. Usar la posición
+	# absoluta lo teletransportaba al plano de la nube, a CloudDistance del
+	# borde, y la profundidad de MediaPipe lo terminaba de empujar fuera del mapa.
+	var lateral: Vector3 = _cloud.global_transform.basis \
+		* Vector3(_points[0].position.x, 0.0, 0.0)
+	_player.global_position = Vector3(
+		_pos_inicial.x + lateral.x,
+		_pos_inicial.y + _agachado(),
+		_pos_inicial.z + lateral.z)
 	# El Player es un CharacterBody3D con gravedad: sin anular la velocidad,
 	# move_and_slide lo sigue desplazando entre frames y la vista tiembla.
 	if _player is CharacterBody3D:
 		_player.velocity = Vector3.ZERO
+
+
+func _p2(id: int) -> Vector2:
+	var mi = _points.get(id)
+	return Vector2.ZERO if mi == null else Vector2(mi.position.x, mi.position.y)
+
+
+## Cuánto bajó la cabeza respecto de estar de pie, en metros (0 o negativo).
+##
+## No se usa la y cruda del landmark: MediaPipe la normaliza al encuadre, así que
+## la altura del punto de vista terminaba dependiendo de cómo estuviera framada
+## la persona y no de su postura — de ahí que la cámara quedara a la altura del
+## pecho. Se mide cuánto sobresale la cabeza por encima de la cadera, en torsos,
+## y se compara contra lo que sobresale estando de pie.
+func _agachado() -> float:
+	for id in [0, 11, 12, 23, 24]:
+		if _points.get(id) == null:
+			return 0.0
+	var cadera := (_p2(23) + _p2(24)) * 0.5
+	var hombros := (_p2(11) + _p2(12)) * 0.5
+	var torso := hombros.distance_to(cadera)
+	if torso < 0.01:
+		return 0.0
+	var sobre_cadera := (_p2(0).y - cadera.y) / torso
+	return minf(0.0, (sobre_cadera - CabezaSobreCaderaDePie) * TorsoMetros)
 
 
 ## Estira y orienta el cilindro entre los dos landmarks del hueso.

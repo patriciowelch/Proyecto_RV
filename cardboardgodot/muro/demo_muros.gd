@@ -11,6 +11,10 @@ const Z_SPAWN := -24.0
 const SPAWN_CADA := 4.5
 const VEL_MURO := 3.5
 
+# La silueta se edita en unidades de figura (las mismas que Figuras) y se pasa a
+# metros recien al salir, en puntos_actuales(): asi la pose neutra y las poses
+# adoptadas se escriben en el mismo sistema, y el muro recibe siempre metros.
+
 # Pose neutra (parado): nariz, hombros, codos, munecas, caderas, rodillas, tobillos.
 const NEUTRA := [
 	Vector2(0.0, 1.6),
@@ -47,8 +51,8 @@ func _crear_silueta() -> void:
 	for i in NEUTRA.size():
 		var e := MeshInstance3D.new()
 		var s := SphereMesh.new()
-		s.radius = 0.1
-		s.height = 0.2
+		s.radius = 0.06
+		s.height = 0.12
 		e.mesh = s
 		e.material_override = mat
 		add_child(e)
@@ -60,14 +64,15 @@ func _crear_label() -> void:
 	_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
 	_label.pixel_size = 0.01
 	_label.modulate = Color(1, 1, 0.6)
-	_label.position = Vector3(0, 3.3, 0)
+	_label.position = Vector3(0, 2.3, 0)
 	add_child(_label)
 	_refrescar_label("-", 0)
 
+## En metros y con y=0 en el piso, que es lo que espera el muro.
 func puntos_actuales() -> Array:
 	var r := []
 	for p in _base:
-		r.append(p + _offset)
+		r.append(Figuras.a_metros(p + _offset))
 	return r
 
 func _actualizar_silueta() -> void:
@@ -77,21 +82,6 @@ func _actualizar_silueta() -> void:
 
 func _refrescar_label(nombre: String, verdes: int) -> void:
 	_label.text = "Muro: %s   (%d/%d articulaciones OK)\nPaso: %d   Fallo: %d\nFlechas: mover   ESPACIO: adoptar pose" % [nombre, verdes, _base.size(), _ok, _fail]
-
-## Aproxima los 13 landmarks desde el esqueleto de una pose (para "adoptarla").
-func _puntos_de_pose(pose: Dictionary) -> Array:
-	var h = pose["huesos"]
-	var cuello: Vector2 = h[0][0]
-	var cadera: Vector2 = h[0][1]
-	return [
-		pose["cabeza"],
-		cuello + Vector2(-0.28, 0), cuello + Vector2(0.28, 0),
-		h[2][1], h[4][1],          # codos
-		h[3][1], h[5][1],          # munecas
-		cadera + Vector2(-0.2, 0), cadera + Vector2(0.2, 0),
-		h[6][1], h[8][1],          # rodillas
-		h[7][1], h[9][1],          # tobillos
-	]
 
 func _spawn() -> void:
 	_pose_entrante = _poses[_idx]
@@ -104,19 +94,18 @@ func _spawn() -> void:
 	_muro_activo = m
 	_refrescar_label(_pose_entrante["nombre"], 0)
 
+## El muro sigue de largo y se borra solo; aca el resultado se lee en el label,
+## que es el equivalente del flash de camara que usa la version en VR.
 func _on_alcanzo_plano(m: Muro) -> void:
 	var res := m.evaluar(puntos_actuales())
-	m.marcar(res["paso"])
 	if res["paso"]:
 		_ok += 1
 	else:
 		_fail += 1
-	var t := get_tree().create_timer(2.0)
-	t.timeout.connect(m.queue_free)
 
 func _process(delta: float) -> void:
 	if Input.is_action_just_pressed("ui_accept"):
-		_base = _puntos_de_pose(_pose_entrante)
+		_base = Figuras.landmarks_figura(_pose_entrante)
 		_offset = Vector2.ZERO
 		_actualizar_silueta()
 	var mv := Input.get_vector("ui_left", "ui_right", "ui_down", "ui_up")
