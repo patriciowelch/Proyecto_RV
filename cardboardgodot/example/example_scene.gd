@@ -58,8 +58,14 @@ const BONES := [
 ## Con la nube adelantada el esqueleto se le planta enfrente y le tapa el muro.
 @export var CloudDistance : float = 0.0
 @export var CloudHeight : float = 1.0
-## Metros de mundo por unidad normalizada de MediaPipe.
+## Metros de mundo por unidad normalizada de MediaPipe. Solo importa si se apaga
+## NormalizarNube: con la normalización activa la escala la fija el torso.
 @export var CloudScale : float = 2.0
+## Lleva la nube a escala real y la apoya en el piso. Sin esto los puntos quedan
+## en coordenadas del ENCUADRE, y el esqueleto se dibuja del tamaño que ocupa la
+## persona en la imagen y centrado en el medio del cuadro: acercarse a la cámara
+## lo agranda hasta meterle medio cuerpo bajo el piso.
+@export var NormalizarNube : bool = true
 ## Cuanto de la profundidad de MediaPipe se aplica. En 0 la nube queda plana.
 ## La z de MediaPipe es una estimacion ruidosa y en metros de mundo empujaba al
 ## jugador varios metros hacia adelante, hasta el borde del piso que rodea la
@@ -104,6 +110,28 @@ const BONES := [
 @export var HeadCutoffFactor : float = 0.6
 @export var ReconnectSeconds : float = 3.0
 
+@export_category("Transmisión a la PC")
+## Manda a la PC, por el mismo WebSocket de los landmarks, lo que ve el jugador:
+## una segunda cámara mono, sin distorsión de lente, montada sobre su cabeza.
+##
+## Apagado por defecto: lo reemplaza el espejo (ver rol.gd), que replica la
+## escena en la PC en vez de mandar píxeles. Queda como respaldo porque anda sin
+## depender de que el estado esté bien sincronizado, pero cuesta caro: cada envío
+## obliga a bajar la textura de la GPU a la CPU y eso frena el render del visor.
+@export var TransmitirVista : bool = false
+## Resolución de la transmisión. Baja a propósito: cada envío obliga a bajar la
+## textura de la GPU a la CPU, que es lo caro de todo esto.
+@export var VistaAncho : int = 640
+@export var VistaAlto : int = 360
+## Cuántos cuadros por segundo se mandan. No hace falta más para seguir la
+## partida desde la PC, y cada uno cuesta una lectura de GPU.
+@export var VistaFps : float = 12.0
+## 0 a 1. Más calidad son más kilobytes por cuadro sobre el WiFi.
+@export var VistaCalidad : float = 0.55
+## Si la imagen llega cabeza abajo, invertir esto: el sentido del eje Y al leer
+## un viewport depende del backend de render.
+@export var VistaVolteada : bool = false
+
 var websocket := WebSocketPeer.new()
 var url := ""
 var conectado := false
@@ -128,15 +156,40 @@ var _debug_bones: Dictionary = {}
 var _targets: Dictionary = {}
 var _filters: Dictionary = {}
 var _status: Label3D
+var _vista: SubViewport
+var _vista_cam: Camera3D
+var _t_vista := 0.0
 var _reconnect_timer := 0.0
 var _scanning := false
 var _frames := 0
 
 
 func _ready() -> void:
+	print("[rol] ", "ESPEJO (PC)" if Rol.es_espejo() else "VISOR (telefono)")
+	if Rol.es_espejo():
+		# En el espejo la cabeza la manda el visor: si además la moviera el
+		# landmark de la nariz, pelearían por la misma posición cada frame.
+		FollowHead = false
+		TransmitirVista = false
 	_build_cloud()
+	if TransmitirVista:
+		_crear_vista_pc()
 	_set_status("Buscando servidor en %sX:%d ..." % [SubnetBase, ServerPort])
 	_buscar_y_conectar()
+
+
+## Segunda cámara, mono y sin distorsión, dentro de su propio SubViewport. Como
+## el SubViewport no crea un mundo propio, dibuja exactamente la misma escena que
+## ve el jugador; solo cambia que es una sola imagen y sin el shader de lente.
+func _crear_vista_pc() -> void:
+	_vista = SubViewport.new()
+	_vista.size = Vector2i(VistaAncho, VistaAlto)
+	_vista.render_target_update_mode = SubViewport.UPDATE_ALWAYS
+	_vista.transparent_bg = false
+	add_child(_vista)
+	_vista_cam = Camera3D.new()
+	_vista_cam.current = true          # current dentro de ESTE viewport, no del principal
+	_vista.add_child(_vista_cam)
 
 
 # --- Construcción de la nube --------------------------------------------------
@@ -182,11 +235,18 @@ func _build_cloud() -> void:
 			Color(1.0, 0.6, 0.1), Color(1.0, 0.35, 0.35), 1.4)
 
 	_status = Label3D.new()
-	_status.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+	# Sin billboard y corrido al costado: es información de diagnóstico, no tiene
+	# por qué estar siempre en la cara. Queda clavado en el mundo a la derecha
+	# del jugador, chico, para verlo solo cuando se gira a mirarlo.
+	_status.billboard = BaseMaterial3D.BILLBOARD_DISABLED
 	_status.no_depth_test = true
-	_status.pixel_size = 0.004
+	_status.pixel_size = 0.005
 	_status.modulate = Color(1, 1, 0.4)
-	_status.position = Vector3(0, 2.2, 0)
+	# A la derecha del jugador y PERPENDICULAR a los muros: su plano queda a 90°
+	# del de la pared, así que de frente no se ve nada y hay que girar la cabeza
+	# para leerlo. Es diagnóstico, no tiene que competir con el juego.
+	_status.position = Vector3(2.4, 1.6, 0.0)
+	_status.rotation = Vector3(0.0, -PI * 0.5, 0.0)
 	_cloud.add_child(_status)
 
 
@@ -244,16 +304,22 @@ func _buscar_y_conectar() -> void:
 ## solo la del punto de acceso no alcanza, porque Android salta sola a otra red
 ## si esa no da internet y entonces el PC deja de ser alcanzable.
 func _subredes_candidatas() -> Array:
-	var bases := []
+	# La del punto de acceso va PRIMERA: es donde está el servidor en el caso
+	# normal, y probarla al final costaba más de un minuto de espera.
+	var bases := [SubnetBase]
 	for addr in IP.get_local_addresses():
 		if addr.count(".") != 3 or addr.begins_with("127."):
+			continue
+		# 169.254.x es link-local: Windows la asigna sola a cada adaptador sin
+		# DHCP y acá aparecían cuatro. Nunca hay un servidor ahí, pero cada IP
+		# inalcanzable agota el medio segundo entero del sondeo, así que probar
+		# esas subredes son ~40 segundos tirados antes de llegar a la buena.
+		if addr.begins_with("169.254."):
 			continue
 		var p := addr.split(".")
 		var base := "%s.%s.%s." % [p[0], p[1], p[2]]
 		if not bases.has(base):
 			bases.append(base)
-	if not bases.has(SubnetBase):
-		bases.append(SubnetBase)
 	return bases
 
 
@@ -278,6 +344,9 @@ func _escanear() -> void:
 				url = test_url
 				_set_status("Servidor: %s\nconectando..." % url)
 				websocket = WebSocketPeer.new()
+				# Por acá salen los cuadros de video, que son bastante más
+				# grandes que el JSON de landmarks que entra.
+				websocket.outbound_buffer_size = 1 << 20
 				if websocket.connect_to_url(url) != OK:
 					_set_status("Error al conectar a %s" % url)
 				_scanning = false
@@ -313,12 +382,56 @@ func _process(delta: float) -> void:
 
 	if conectado:
 		_suavizar(delta)
+		if _vista:
+			_transmitir_vista(delta)
+
+
+## Transformada de la cabeza del jugador. Los pivotes de ojo cuelgan de los
+## SubViewport del visor, no del jugador, así que hay que ir a buscarla ahí:
+## tomando la del Player la transmisión no seguiría el giro de la cabeza.
+func _transformada_cabeza() -> Transform3D:
+	if _camera:
+		var pivote = _camera.get("LeftEyePivot")
+		if pivote is Node3D:
+			return (pivote as Node3D).global_transform
+	var t := global_transform
+	if _player:
+		t = _player.global_transform
+		t.origin += Vector3(0, 1.75, 0)
+	return t
+
+
+## Manda un cuadro de la vista del jugador a la PC. El envío va estrangulado a
+## VistaFps porque get_image() obliga a bajar la textura de la GPU a la CPU y eso
+## frena el render: a 60 por segundo se notaba el tirón en el visor.
+func _transmitir_vista(delta: float) -> void:
+	_vista_cam.global_transform = _transformada_cabeza()
+	_t_vista += delta
+	if _t_vista < 1.0 / maxf(VistaFps, 1.0):
+		return
+	_t_vista = 0.0
+	var tex := _vista.get_texture()
+	if tex == null:
+		return
+	var img := tex.get_image()
+	if img == null:
+		return
+	if VistaVolteada:
+		img.flip_y()
+	img.convert(Image.FORMAT_RGB8)      # el JPEG no admite canal alfa
+	var buf := img.save_jpg_to_buffer(VistaCalidad)
+	if buf.size() > 0:
+		websocket.send(buf, WebSocketPeer.WRITE_MODE_BINARY)
 
 
 ## Corre el filtro una vez por frame y vuelca el resultado en la escena.
 func _suavizar(delta: float) -> void:
+	var pos := {}
 	for id in _points:
-		_points[id].position = _filters[id].filtrar(_targets[id], delta)
+		pos[id] = _filters[id].filtrar(_targets[id], delta)
+	_normalizar(pos)
+	for id in _points:
+		_points[id].position = pos[id]
 
 	# El esqueleto de debug acompaña al jugador: con FollowHead el jugador se
 	# mueve adonde caiga la nariz, así que uno fijo en el mundo se pierde de
@@ -330,11 +443,11 @@ func _suavizar(delta: float) -> void:
 	if not _debug_points.is_empty():
 		# El esqueleto de debug se recentra en la cadera cada frame, así queda
 		# entero a la vista sin importar cómo esté encuadrada la persona.
-		var cadera := Vector3.ZERO
+		var cadera_dbg := Vector3.ZERO
 		if _points.has(23) and _points.has(24):
-			cadera = (_points[23].position + _points[24].position) * 0.5
+			cadera_dbg = (_points[23].position + _points[24].position) * 0.5
 		for id in _debug_points:
-			_debug_points[id].position = _points[id].position - cadera
+			_debug_points[id].position = _points[id].position - cadera_dbg
 	for bone in BONES:
 		_update_bone(bone, _points, _bones)
 		if not _debug_bones.is_empty():
@@ -343,11 +456,73 @@ func _suavizar(delta: float) -> void:
 		_mover_cabeza()
 
 
+## Escala la nube para que el torso mida lo que el del personaje y la apoya en el
+## piso por los tobillos.
+##
+## Es la misma corrección que ya se les hacía a los puntos que van contra el
+## muro. Hacerla acá, una sola vez, garantiza que el cuerpo que se VE sea
+## exactamente el que se COMPARA: antes el esqueleto 3D quedaba en coordenadas
+## del encuadre y el de la pared normalizado, así que uno se hundía en el piso
+## mientras el otro se veía bien.
+func _normalizar(pos: Dictionary) -> void:
+	if not NormalizarNube:
+		return
+	var hombros: Vector3 = (pos[11] + pos[12]) * 0.5
+	var cadera: Vector3 = (pos[23] + pos[24]) * 0.5
+	var torso := Vector2(hombros.x - cadera.x, hombros.y - cadera.y).length()
+	if torso < 0.01:
+		return          # todavía no llegó nadie: dejar la nube como está
+	var k := _torso_objetivo() / torso
+	var tobillos: float = (pos[27].y + pos[28].y) * 0.5
+	# El piso está a -CloudHeight en coordenadas locales de la nube.
+	var y0 := -CloudHeight + _altura_tobillo()
+	for id in pos:
+		var p: Vector3 = pos[id]
+		pos[id] = Vector3(p.x * k, y0 + (p.y - tobillos) * k, p.z * k)
+
+
+## Largo del torso y altura del tobillo del personaje, en metros. Acá van los del
+## cuerpo de referencia; el gestor del juego los sobreescribe con los de la
+## calibración, para que la nube siga las medidas de quien está jugando.
+func _torso_objetivo() -> float:
+	return TorsoMetros
+
+func _altura_tobillo() -> float:
+	return 0.07
+
+
+## Por el mismo canal llegan dos cosas distintas: los landmarks que publica el
+## servidor y, cuando corre el espejo, el estado que retransmite el visor.
 func _procesar(raw: String) -> void:
 	var data = JSON.parse_string(raw)
-	if data == null or not data.has("landmarks"):
+	if data == null:
 		return
+	if data.has("landmarks"):
+		_procesar_landmarks(data)
+	elif data.has("est"):
+		recibir_estado(data)
+	elif data.has("cmd"):
+		recibir_comando(data["cmd"])
 
+
+## La sobreescribe el gestor del juego para aplicar el estado en el espejo.
+func recibir_estado(_data: Dictionary) -> void:
+	pass
+
+
+## La sobreescribe el gestor del juego para ejecutar en el visor lo que se
+## aprieta desde la PC.
+func recibir_comando(_cmd) -> void:
+	pass
+
+
+## Manda un mensaje JSON por el mismo WebSocket de los landmarks.
+func enviar_json(data: Dictionary) -> void:
+	if conectado:
+		websocket.send_text(JSON.stringify(data))
+
+
+func _procesar_landmarks(data: Dictionary) -> void:
 	for lm in data["landmarks"]:
 		var id := int(lm["id"])
 		if not _targets.has(id):

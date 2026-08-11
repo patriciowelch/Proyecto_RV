@@ -14,13 +14,9 @@ extends "res://example/example_scene.gd"
 const Z_SPAWN := -12.0
 const Z_PLANO := 0.0
 
-## Mide el torso del jugador (hombros a cadera) y lo lleva al torso de la figura.
-## MediaPipe normaliza al encuadre, asi que cuanto mas lejos de la camara esta la
-## persona mas chico llega todo: por eso los movimientos "se sentian chiquitos" y
-## habia que retocar la ganancia cada vez que uno se corria de lugar. Con esto la
-## postura deja de depender de a que distancia estes parado.
-@export var normalizar_por_torso: bool = true
-## Multiplicador extra sobre esa escala, para ajustar el feel en vivo.
+## Multiplicador sobre el tamano del cuerpo contra el agujero, alrededor de la
+## cadera. La escala real ya la fija la normalizacion de la nube (NormalizarNube
+## en example_scene); esto queda como perilla para ajustar el feel en vivo.
 @export var escala_cuerpo: float = 1.0
 @export var velocidad_muro: float = 1.5
 ## Igual al tiempo de viaje (12 m / 1.5 m/s), asi los muros van de a uno y el
@@ -78,12 +74,46 @@ var _flash: ColorRect
 var _flash_mat: ShaderMaterial
 var _t_flash := 0.0
 
+## --- Espejo -------------------------------------------------------------------
+var _espejo := false
+## Muros vivos indexados por id, para poder emparejarlos con los del visor.
+var _muros: Dictionary = {}
+var _proximo_id := 0
+var _t_envio := 0.0
+## Cuantos cuadros por segundo de estado se publican. El mensaje son ~200 bytes,
+## asi que 30 cuesta 6 KB/s: nada al lado de mandar imagenes.
+@export var EstadoFps : float = 30.0
+var _cam_espejo: Camera3D
+var _vista_ojos := false
+## Ultimos contadores aplicados en el espejo. El flash se dispara cuando suben,
+## en vez de mandar un evento suelto: asi un mensaje perdido no se lo come.
+var _ok_visto := 0
+var _fail_visto := 0
+var _cabeza_espejo := Transform3D()
+
 func _ready() -> void:
 	super._ready()               # construye la nube + conecta el WebSocket
 	_ocultar_agua_glb()
+	_espejo = Rol.es_espejo()
 	_poses = Figuras.todas()
 	_crear_flash()
-	_crear_bienvenida()
+	if _espejo:
+		_preparar_espejo()
+	else:
+		_crear_bienvenida()
+
+## En el espejo no hay visor: se apaga el render estereoscopico y se pone una
+## camara comun, que puede ir donde quiera porque no esta atada a la cabeza.
+func _preparar_espejo() -> void:
+	if _camera:
+		_camera.set("Active", false)
+		var vista = _camera.get("View")
+		if vista:
+			vista.visible = false
+	_cam_espejo = Camera3D.new()
+	_cam_espejo.current = true
+	add_child(_cam_espejo)
+	_colocar_camara_espejo()
 
 func _crear_flash() -> void:
 	var capa := CanvasLayer.new()
@@ -128,11 +158,25 @@ func _ocultar_agua_glb() -> void:
 func _crear_bienvenida() -> void:
 	if is_instance_valid(_bienvenida):
 		_bienvenida.queue_free()
-	# A la altura de los ojos (la nube esta a CloudHeight) y un poco mas lejos
-	# que el origen de la nube, para no quedar encima del esqueleto. El -Z local
-	# de la nube es el lado contrario al jugador, asi que resta distancia.
-	_bienvenida = _nuevo_label(Vector3(0, 0.75, -1.5), 0.0105)
+	# A la altura de los ojos (la nube esta a CloudHeight) y bien adelante: el -Z
+	# local de la nube es el lado contrario al jugador, asi que resta distancia.
+	# El tamano en pixeles acompana a la distancia, asi el cartel se ve igual de
+	# grande pero deja de estar encima de la cara.
+	# Lo que se percibe es el TAMANO ANGULAR (pixel_size / distancia), no la
+	# distancia: con la separacion de ojos calibrada en 5 mm casi no hay paralaje
+	# estereoscopica, asi que alejar el cartel y subirle pixel_size en la misma
+	# proporcion lo dejaba exactamente igual de encima. Aca 0.019/5.0 = 0.0038,
+	# poco mas de la mitad del 0.0070 que tenia antes.
+	_bienvenida = _nuevo_label(Vector3(0, 0.75, -5.0), 0.019)
 	_bienvenida.text = "HOLE IN THE WALL VR\n\nImita la figura de cada muro\nque se acerca.\n\nBoton 2: empezar\nBoton 3: pararse en T y calibrar"
+
+## HUD al costado IZQUIERDO y perpendicular a los muros, no de frente: adelante
+## se superpone con el muro que llega y con el esqueleto objetivo. Se lee girando
+## la cabeza, que es cuando uno quiere mirarlo.
+func _crear_hud() -> Label3D:
+	var l := _nuevo_label(Vector3(-2.4, 2.0, 0.0), 0.008)
+	l.rotation = Vector3(0.0, PI * 0.5, 0.0)
+	return l
 
 func _nuevo_label(pos: Vector3, tam: float) -> Label3D:
 	var l := Label3D.new()
@@ -156,9 +200,33 @@ func _nuevo_label(pos: Vector3, tam: float) -> Label3D:
 # Boton 2 (o Enter/Espacio): arranca, y durante el juego lo frena para volver a
 # la bienvenida sin cerrar la app. Boton 3 (o C): mide al jugador parado en T.
 func _input(event: InputEvent) -> void:
-	var boton := _boton(event)
-	if boton == 0:
+	if _espejo:
+		_input_espejo(event)
 		return
+	var boton := _boton(event)
+	if boton != 0:
+		accion(boton)
+
+## Desde la PC se maneja todo el juego sin tocar el control: las teclas no actuan
+## localmente (el espejo no simula nada), sino que se mandan al visor por el
+## mismo WebSocket. V es la excepcion, porque el punto de vista es solo de acá.
+func _input_espejo(event: InputEvent) -> void:
+	if not (event is InputEventKey and event.pressed and not event.echo):
+		return
+	match event.keycode:
+		KEY_V:
+			_vista_ojos = not _vista_ojos
+			print("[espejo] vista: ", "ojos del jugador" if _vista_ojos else "tercera persona")
+		KEY_ENTER, KEY_SPACE:
+			enviar_json({"cmd": 2})
+		KEY_C:
+			enviar_json({"cmd": 3})
+		KEY_R:
+			enviar_json({"cmd": "recentrar"})
+
+## Las dos acciones del control, para que el boton fisico y el comando remoto
+## pasen exactamente por el mismo camino.
+func accion(boton: int) -> void:
 	match _estado:
 		Estado.JUGANDO:
 			if boton == 2:
@@ -168,6 +236,16 @@ func _input(event: InputEvent) -> void:
 				_iniciar()
 			elif boton == 3:
 				_empezar_calibracion()
+
+## Comandos que llegan de la PC (del espejo o de la ventana de la camara).
+func recibir_comando(cmd) -> void:
+	if _espejo:
+		return          # el espejo no ejecuta: solo emite
+	if typeof(cmd) == TYPE_STRING and cmd == "recentrar":
+		if _camera and _camera.has_method("recenter"):
+			_camera.recenter()
+		return
+	accion(int(cmd))
 
 ## 2, 3 o 0 si el evento no es ninguno de los dos.
 func _boton(event: InputEvent) -> int:
@@ -189,6 +267,7 @@ func _detener() -> void:
 		for n in _cloud.get_children():
 			if n is Muro:
 				n.queue_free()
+	_muros.clear()
 	_muro_activo = null
 	_t = 0.0
 	if _hud:
@@ -290,7 +369,7 @@ func _iniciar() -> void:
 	if _bienvenida:
 		_bienvenida.queue_free()
 		_bienvenida = null
-	_hud = _nuevo_label(Vector3(0, 2.7, 0), 0.006)
+	_hud = _crear_hud()
 	_spawn()
 
 ## Puntos del cuerpo en el espacio del muro: metros, con y=0 en el piso. Vacio
@@ -306,42 +385,50 @@ func _puntos_muro() -> Array:
 	for id in LANDMARK_IDS:
 		if _points.get(id) == null:
 			return []
-	var cadera := (_pos(23) + _pos(24)) * 0.5
-	var hombros := (_pos(11) + _pos(12)) * 0.5
-	var k := escala_cuerpo
-	if normalizar_por_torso:
-		var torso := hombros.distance_to(cadera)
-		if torso < 0.01:
-			return []
-		k *= Figuras.torso() / torso
-	# Vertical anclada a los pies, igual que las figuras: al agacharse baja la
-	# cadera y los tobillos se quedan en el piso.
-	var tobillos := (_pos(27) + _pos(28)) * 0.5
-	var y0 := Figuras.a_metros(Vector2(0.0, Figuras.y_tobillo_de_pie())).y
+	# La nube ya viene escalada al torso y apoyada en el piso (ver
+	# example_scene._normalizar), asi que aca solo hay que cambiar de sistema de
+	# coordenadas: la nube cuelga CloudHeight sobre el piso y el muro se talla
+	# con el piso en y=0. La x no se toca, porque correrse a lo ancho de la
+	# camara tiene que mover la silueta sobre el muro: ubicarse frente al
+	# agujero es parte del juego.
+	var ancla := Figuras.a_metros(Figuras.CADERA)
 	var r := []
 	for id in LANDMARK_IDS:
 		var p := _pos(id)
-		# La x NO se centra en el cuerpo: correrse a lo ancho de la camara tiene
-		# que mover la silueta sobre el muro, porque ubicarse frente al agujero
-		# es parte del juego. Antes se restaba el centro de la cadera y la
-		# silueta quedaba clavada al medio por mas que uno se corriera.
-		r.append(Vector2(p.x * k, y0 + (p.y - tobillos.y) * k))
+		var q := Vector2(p.x, p.y + CloudHeight)
+		r.append(ancla + (q - ancla) * escala_cuerpo)
 	return r
 
+func _torso_objetivo() -> float:
+	return Figuras.torso()
+
+func _altura_tobillo() -> float:
+	return Figuras.a_metros(Vector2(0.0, Figuras.y_tobillo_de_pie())).y
+
 func _spawn() -> void:
-	var pose = _poses[_idx]
+	var m := _nuevo_muro(_proximo_id, _idx, Z_SPAWN)
+	_proximo_id += 1
 	_idx = (_idx + 1) % _poses.size()
+	m.alcanzo_plano.connect(_on_alcanzo_plano)
+	_muro_activo = m
+
+## Instancia un muro. Lo usan los dos roles: el visor cuando le toca aparecer, el
+## espejo cuando ve un id que todavia no tiene.
+func _nuevo_muro(id: int, idx_pose: int, z: float) -> Muro:
 	var m := Muro.new()
-	m.configurar(pose, velocidad_muro, Z_PLANO)
+	m.id = id
+	m.idx_pose = idx_pose
+	m.pasivo = _espejo
+	m.configurar(_poses[idx_pose], velocidad_muro, Z_PLANO)
 	# El muro se talla desde y=0 hacia arriba, asi que hay que bajarlo hasta el
 	# piso: la nube cuelga CloudHeight por encima de el.
-	m.position = Vector3(0, -CloudHeight, Z_SPAWN)
-	m.alcanzo_plano.connect(_on_alcanzo_plano)
+	m.position = Vector3(0, -CloudHeight, z)
 	if _cloud:
 		_cloud.add_child(m)
 	else:
 		add_child(m)
-	_muro_activo = m
+	_muros[id] = m
+	return m
 
 ## El muro no se detiene ni se pinta: sigue de largo y se borra solo cuando ya
 ## paso la pileta. El resultado lo da el flash sobre la camara.
@@ -359,19 +446,198 @@ func _on_alcanzo_plano(m: Muro) -> void:
 func _process(delta: float) -> void:
 	super._process(delta)        # sigue actualizando el cuerpo y la cabeza
 	_paso_flash(delta)           # corre en cualquier estado: no lo corta parar
+	if _espejo:
+		_colocar_camara_espejo()
+		_feedback_muro()
+		return
 	if _estado == Estado.CALIBRANDO:
 		_paso_calibracion(delta)
+		_publicar(delta)
 		return
-	if _estado != Estado.JUGANDO:
+	if _estado == Estado.JUGANDO:
+		_feedback_muro()
+		_t += delta
+		if _t >= spawn_cada:
+			_t = 0.0
+			_spawn()
+	_publicar(delta)
+
+
+## Dibuja el esqueleto del jugador sobre el muro que se esta jugando. En el
+## espejo se elige el de mayor z, que es el mas cercano: cual es el activo no
+## hace falta mandarlo porque se deduce.
+func _feedback_muro() -> void:
+	# El que se esta jugando es el mas cercano de los que TODAVIA no llegaron.
+	# Filtrar los que ya pasaron es lo que faltaba: se quedan hasta 8 segundos
+	# alejandose, seguian siendo los mas cercanos y se les dibujaba el esqueleto
+	# encima con alfa 0, mientras el muro que venia quedaba sin nada.
+	var m: Muro = null
+	for id in _muros:
+		var c = _muros[id]
+		if not is_instance_valid(c) or c.position.z >= c.z_plano:
+			continue
+		if m == null or c.position.z > m.position.z:
+			m = c
+	if not is_instance_valid(m):
 		return
-	if is_instance_valid(_muro_activo):
-		var pts := _puntos_muro()
-		if not pts.is_empty():
-			var verdes := _muro_activo.actualizar_feedback(pts)
-			if _hud:
-				_hud.text = "%s\n%d/%d articulaciones OK\nPaso: %d   Fallo: %d\nBoton 2: parar y recalibrar" % [
-					_muro_activo.pose["nombre"], verdes, LANDMARK_IDS.size(), _ok, _fail]
-	_t += delta
-	if _t >= spawn_cada:
-		_t = 0.0
-		_spawn()
+	var pts := _puntos_muro()
+	if pts.is_empty():
+		return
+	var verdes := m.actualizar_feedback(pts)
+	if _hud:
+		_hud.text = "%s\n%d/%d articulaciones OK\nPaso: %d   Fallo: %d\nBoton 2: parar y recalibrar" % [
+			m.pose["nombre"], verdes, LANDMARK_IDS.size(), _ok, _fail]
+
+
+# --- Publicacion del estado (solo el visor) -----------------------------------
+
+func _publicar(delta: float) -> void:
+	_t_envio += delta
+	if _t_envio < 1.0 / maxf(EstadoFps, 1.0):
+		return
+	_t_envio = 0.0
+	for id in _muros.keys():
+		if not is_instance_valid(_muros[id]):
+			_muros.erase(id)
+	enviar_json(_estado_actual())
+
+
+## Lo unico que el espejo NO puede deducir por su cuenta.
+##
+## Queda afuera a proposito todo lo que sale de los landmarks, que los dos roles
+## reciben del mismo broadcast: el cuerpo, la posicion del jugador, los
+## marcadores verde/rojo y el desvanecido de los esqueletos.
+func _estado_actual() -> Dictionary:
+	var muros := []
+	for id in _muros:
+		var m = _muros[id]
+		if is_instance_valid(m):
+			muros.append([id, m.idx_pose, snappedf(m.position.z, 0.001)])
+	var cab := _transformada_cabeza()
+	var q := cab.basis.get_rotation_quaternion()
+	return {
+		"est": _estado,
+		# Posicion y orientacion de la cabeza: el giroscopio solo existe en el
+		# telefono, no hay forma de deducirlo del otro lado.
+		"cab": [
+			snappedf(cab.origin.x, 0.001), snappedf(cab.origin.y, 0.001),
+			snappedf(cab.origin.z, 0.001), snappedf(q.x, 0.0001),
+			snappedf(q.y, 0.0001), snappedf(q.z, 0.0001), snappedf(q.w, 0.0001),
+		],
+		# Las proporciones calibradas salen de una mediana sobre una ventana de
+		# 2 s, asi que el espejo no las puede recalcular ni teniendo los mismos
+		# landmarks: no recibe los mismos frames ni con el mismo timing.
+		"cal": [Figuras.r_hombro, Figuras.r_cadera, Figuras.l_brazo_sup,
+			Figuras.l_antebrazo, Figuras.l_muslo, Figuras.l_pierna, Figuras.l_nariz],
+		# Cada muro con su id: el avance y el spawn se calculan contra el delta
+		# local, asi que simularlos en paralelo se desfasaria a los pocos segundos.
+		"muros": muros,
+		# Contadores en vez de un evento suelto de paso/fallo: si se pierde un
+		# mensaje, el siguiente igual trae el salto y el flash no se pierde.
+		"ok": _ok,
+		"fail": _fail,
+	}
+
+
+# --- Aplicacion del estado (solo el espejo) -----------------------------------
+
+func recibir_estado(data: Dictionary) -> void:
+	if not _espejo:
+		return
+	_aplicar_calibracion(data.get("cal"))
+	_aplicar_muros(data.get("muros"))
+	_aplicar_pantalla(int(data.get("est", Estado.ESPERANDO)))
+	_aplicar_cabeza(data.get("cab"))
+	_aplicar_contadores(int(data.get("ok", 0)), int(data.get("fail", 0)))
+
+## Se escriben directo, sin volver a validar: el visor ya las valido contra los
+## rangos anatomicos antes de aceptarlas (ver Figuras.calibrar).
+func _aplicar_calibracion(a) -> void:
+	if typeof(a) != TYPE_ARRAY or (a as Array).size() != 7:
+		return
+	Figuras.r_hombro = float(a[0])
+	Figuras.r_cadera = float(a[1])
+	Figuras.l_brazo_sup = float(a[2])
+	Figuras.l_antebrazo = float(a[3])
+	Figuras.l_muslo = float(a[4])
+	Figuras.l_pierna = float(a[5])
+	Figuras.l_nariz = float(a[6])
+
+func _aplicar_muros(lista) -> void:
+	if typeof(lista) != TYPE_ARRAY:
+		return
+	var vivos := {}
+	for e in lista:
+		if typeof(e) != TYPE_ARRAY or (e as Array).size() < 3:
+			continue
+		var id := int(e[0])
+		vivos[id] = true
+		var m = _muros.get(id)
+		if not is_instance_valid(m):
+			m = _nuevo_muro(id, int(e[1]), float(e[2]))
+		m.position.z = float(e[2])
+	# Los que el visor ya no reporta es porque se borraron al pasar la pileta.
+	for id in _muros.keys():
+		if not vivos.has(id):
+			var m = _muros[id]
+			if is_instance_valid(m):
+				m.queue_free()
+			_muros.erase(id)
+
+func _aplicar_pantalla(e: int) -> void:
+	if e == _estado:
+		return
+	_estado = e
+	if _estado == Estado.JUGANDO:
+		if is_instance_valid(_bienvenida):
+			_bienvenida.queue_free()
+			_bienvenida = null
+		if not is_instance_valid(_hud):
+			_hud = _crear_hud()
+	else:
+		if is_instance_valid(_hud):
+			_hud.queue_free()
+			_hud = null
+		_crear_bienvenida()
+
+func _aplicar_cabeza(a) -> void:
+	if typeof(a) != TYPE_ARRAY or (a as Array).size() != 7:
+		return
+	_cabeza_espejo = Transform3D(
+		Basis(Quaternion(float(a[3]), float(a[4]), float(a[5]), float(a[6]))),
+		Vector3(float(a[0]), float(a[1]), float(a[2])))
+	# El Player no lleva camara en el espejo, pero mantenerlo en su sitio hace
+	# que la vista de tercera persona sepa a quien encuadrar.
+	if _player:
+		_player.global_position = _cabeza_espejo.origin - Vector3(0, _altura_ojos(), 0)
+
+func _aplicar_contadores(ok: int, fail: int) -> void:
+	if ok > _ok_visto:
+		_disparar_flash(true)
+	elif fail > _fail_visto:
+		_disparar_flash(false)
+	_ok_visto = ok
+	_fail_visto = fail
+	_ok = ok
+	_fail = fail
+
+func _altura_ojos() -> float:
+	if _camera:
+		var h = _camera.get("EyeHeight")
+		if typeof(h) == TYPE_FLOAT:
+			return float(h)
+	return 1.75
+
+## Tercera persona por detras y al costado: se ve al jugador y al muro que se le
+## viene encima, que es el plano con el que se entiende el juego desde afuera.
+## Con V se pasa a los ojos del jugador.
+func _colocar_camara_espejo() -> void:
+	if _cam_espejo == null:
+		return
+	if _vista_ojos:
+		_cam_espejo.global_transform = _cabeza_espejo
+		return
+	var ojos := _cabeza_espejo.origin
+	var costado := _frente.cross(Vector3.UP).normalized()
+	_cam_espejo.global_position = ojos - _frente * 3.2 + costado * 1.8 + Vector3(0, 1.0, 0)
+	_cam_espejo.look_at(ojos + _frente * 2.0, Vector3.UP)

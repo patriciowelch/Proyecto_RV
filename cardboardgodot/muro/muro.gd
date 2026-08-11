@@ -26,6 +26,11 @@ var pose: Dictionary = {}
 ## Radio del hueco de la cabeza. Se deriva de las proporciones para que siga a la
 ## calibracion; en 0 o menos se recalcula, con un valor > 0 se fuerza a mano.
 @export var r_cabeza: float = 0.0
+## Cuanto mas grande que el craneo se abre el hueco de la cabeza. Toca SOLO el
+## agujero de la pared: el nodo objetivo dibujado sale de r_nodo y no cambia. No
+## se agranda r_craneo en Figuras porque de ahi sale tambien la corona de la
+## figura, y mover eso reescalaria el personaje entero.
+@export var holgura_cabeza: float = 1.6
 @export var velocidad: float = 4.0   # m/s hacia +Z (hacia el jugador)
 @export var z_plano: float = 0.0     # plano de evaluacion (donde esta el cuerpo)
 ## Cuanto sigue viajando el muro despues de atravesar al jugador antes de
@@ -56,6 +61,17 @@ var pose: Dictionary = {}
 ## De aca sale TODO: el agujero, el esqueleto objetivo dibujado y el chequeo.
 var _objetivos: Array = []
 
+## Identificador que asigna el visor, para poder emparejar este muro con su copia
+## en el espejo.
+var id: int = 0
+## Indice de la pose dentro de Figuras.todas(), para que el espejo pueda armar
+## el mismo muro sin que le manden la figura entera.
+var idx_pose: int = 0
+## En el espejo el muro no avanza solo: su z la manda el visor. Sin esto los dos
+## correrian a distinto framerate y se separarian a los pocos segundos, porque
+## tanto el avance como el spawn se calculan contra el delta local.
+var pasivo := false
+
 var _mat: StandardMaterial3D
 var _evaluado := false
 ## Opacidad actual de los esqueletos dibujados: 1 lejos, 0 encima del jugador.
@@ -78,7 +94,7 @@ func _ready() -> void:
 		pose = Figuras.todas()[0]
 	_objetivos = Figuras.landmarks(pose)
 	if r_cabeza <= 0.0:
-		r_cabeza = Figuras.r_craneo * Figuras.torso()
+		r_cabeza = Figuras.r_craneo * Figuras.torso() * holgura_cabeza
 
 	var comb := CSGCombiner3D.new()
 	add_child(comb)
@@ -241,12 +257,17 @@ func _cilindro(c: Vector2, radio: float) -> CSGCylinder3D:
 ## verde/rojo cortaba el movimiento justo en el momento de mas tension; el
 ## resultado ahora lo da el flash de la camara.
 func _process(delta: float) -> void:
-	position.z += velocidad * delta
+	if not pasivo:
+		position.z += velocidad * delta
+	# El desvanecido sale de la z, asi que en el espejo sigue igual sin mandar
+	# nada: se deduce de la posicion que ya viene sincronizada.
 	_alfa = clampf((z_plano - position.z) / maxf(distancia_desvanecer, 0.001), 0.0, 1.0)
 	if _mat_objetivo:
 		_mat_objetivo.albedo_color.a = alfa_objetivos * _alfa
 	if _mat_barras:
 		_mat_barras.albedo_color.a = _alfa
+	if pasivo:
+		return
 	if not _evaluado and position.z >= z_plano:
 		_evaluado = true
 		alcanzo_plano.emit(self)

@@ -241,4 +241,4 @@ func _process(delta: float) -> void:
 		LeftEyePivot.rotate_object_local(Vector3.RIGHT, gyroscope.x * GysroscopeFactor)
 		RightEyePivot.rotate_object_local(Vector3.RIGHT, gyroscope.x * GysroscopeFactor)
 		LeftEyePivot.rotation.x = clamp(LeftEyePivot.rotation.x, deg_to_rad(-90), deg_to_rad(90))
-		RightEyePivot.rotation.x = clamp(RightEyePivot.rotation.x, deg_to_rad(-90), deg_to_rad(90))	
+		RightEyePivot.rotation.x = clamp(RightEyePivot.rotation.x, deg_to_rad(-90), deg_to_rad(90))
