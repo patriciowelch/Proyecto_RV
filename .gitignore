@@ -17,3 +17,8 @@ mono_crash.*.json
 # Build outputs
 *.apk
 *.apk.idsig
+# Ejecutable del espejo de PC: 100+ MB porque lleva el PCK embebido.
+*.exe
+
+# Cache de Python del servidor
+__pycache__/
