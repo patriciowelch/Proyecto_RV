@@ -90,6 +90,8 @@ var _vista_ojos := false
 var _ok_visto := 0
 var _fail_visto := 0
 var _cabeza_espejo := Transform3D()
+var _panel: CanvasLayer
+var _servidor_lanzado := false
 
 func _ready() -> void:
 	super._ready()               # construye la nube + conecta el WebSocket
@@ -105,6 +107,17 @@ func _ready() -> void:
 ## En el espejo no hay visor: se apaga el render estereoscopico y se pone una
 ## camara comun, que puede ir donde quiera porque no esta atada a la cabeza.
 func _preparar_espejo() -> void:
+	# El servidor primero: es lo que abre la ventana de la cámara, y así aparece
+	# apenas se hace doble clic en el .exe.
+	_levantar_servidor()
+	# En ventana, no en pantalla completa. project.godot pide pantalla completa
+	# para el visor (donde la barra de estado de Android se cuela sobre el borde
+	# de la imagen), y el addon de Cardboard la refuerza en su _ready, que corre
+	# antes que este por ser nodo hijo. Acá se deshace para la PC.
+	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_WINDOWED)
+	DisplayServer.window_set_size(Vector2i(1280, 720))
+	var pantalla := DisplayServer.screen_get_size()
+	DisplayServer.window_set_position((pantalla - Vector2i(1280, 720)) / 2)
 	if _camera:
 		_camera.set("Active", false)
 		var vista = _camera.get("View")
@@ -114,6 +127,98 @@ func _preparar_espejo() -> void:
 	_cam_espejo.current = true
 	add_child(_cam_espejo)
 	_colocar_camara_espejo()
+
+	_panel = load("res://espejo/panel.gd").new()
+	_panel.cambio_config.connect(_on_cambio_config)
+	_panel.cambio_poses.connect(_on_cambio_poses)
+	add_child(_panel)
+
+## Levanta el servidor de Python al arrancar, salvo que ya haya uno escuchando.
+## Asi el .exe del espejo es lo unico que hay que abrir y la ventana de la camara
+## aparece enseguida.
+##
+## No se espera el barrido de red: la sonda a 127.0.0.1 tarda milisegundos y
+## alcanza para no pisar un servidor que ya este corriendo, que era el unico
+## motivo para esperar.
+##
+## MediaPipe y la camara siguen del lado de Python a proposito: Godot no trae
+## estimacion de pose, y meterla adentro pediria una GDExtension nativa a cambio
+## de tirar una tuberia que ya funciona.
+func _levantar_servidor() -> void:
+	if _servidor_lanzado or not _espejo:
+		return
+	_servidor_lanzado = true
+	_matar_servidor_previo()
+	var guion := OS.get_executable_path().get_base_dir().path_join("servidor/servidor.py")
+	if not FileAccess.file_exists(guion):
+		# Corriendo desde el editor el ejecutable es Godot, no el juego.
+		guion = ProjectSettings.globalize_path("res://../servidor/servidor.py")
+	if not FileAccess.file_exists(guion):
+		print("[servidor] no encuentro servidor.py")
+		return
+	# En Windows el interprete puede llamarse de varias formas segun como se
+	# haya instalado; se prueban en orden hasta que uno arranque.
+	for interprete in ["python", "py", "python3"]:
+		# Con consola visible: si el servidor no puede abrir la camara o le falta
+		# el modelo de MediaPipe, lo dice ahi y no hay que adivinarlo.
+		var pid := OS.create_process(interprete, [guion], true)
+		if pid > 0:
+			print("[servidor] lanzado con '%s' (pid %d): %s" % [interprete, pid, guion])
+			return
+	print("[servidor] no pude ejecutar Python. Levantalo a mano con: python ", guion)
+
+## Baja lo que este ocupando el puerto antes de levantar el servidor nuevo.
+##
+## Hace falta porque un servidor a medio morir sigue escuchando aunque no haya
+## podido abrir la camara -- por ejemplo si al arrancar otro se la habia quedado
+## -- y desde afuera es indistinguible de uno sano: el puerto contesta, pero no
+## hay ventana de camara ni landmarks. Reusarlo dejaba el juego sin cuerpo.
+func _matar_servidor_previo() -> void:
+	if not _hay_servidor_local():
+		return
+	var ps := ("Get-NetTCPConnection -LocalPort %d -State Listen "
+		+ "-ErrorAction SilentlyContinue | ForEach-Object "
+		+ "{ Stop-Process -Id $_.OwningProcess -Force }") % ServerPort
+	var salida := []
+	OS.execute("powershell", ["-NoProfile", "-Command", ps], salida, true)
+	print("[servidor] baje el que ocupaba el puerto ", ServerPort)
+	# Windows tarda un instante en liberar el socket.
+	for i in 40:
+		if not _hay_servidor_local():
+			return
+		OS.delay_msec(50)
+	print("[servidor] el puerto sigue ocupado; puede que el nuevo no arranque")
+
+## Sonda rapida: hay algo escuchando el puerto del servidor en esta maquina.
+func _hay_servidor_local() -> bool:
+	var tcp := StreamPeerTCP.new()
+	if tcp.connect_to_host("127.0.0.1", ServerPort) != OK:
+		return false
+	for i in 20:
+		tcp.poll()
+		match tcp.get_status():
+			StreamPeerTCP.STATUS_CONNECTED:
+				tcp.disconnect_from_host()
+				return true
+			StreamPeerTCP.STATUS_ERROR:
+				return false
+		OS.delay_msec(10)
+	tcp.disconnect_from_host()
+	return false
+
+func sin_servidor() -> void:
+	_levantar_servidor()      # respaldo: si ya se lanzó, no hace nada
+
+## Lo que se toca en el panel se aplica ACA tambien, no solo en el visor: el
+## espejo dibuja los muros y el esqueleto objetivo, asi que tiene que ver el
+## cambio al instante en vez de esperar el proximo estado.
+func _on_cambio_config(cfg: Dictionary) -> void:
+	recibir_config_local(cfg)
+	enviar_json({"cfg": cfg})
+
+func _on_cambio_poses(poses: Array) -> void:
+	recibir_poses_local(poses)
+	enviar_json({"poses": poses})
 
 func _crear_flash() -> void:
 	var capa := CanvasLayer.new()
@@ -214,6 +319,9 @@ func _input_espejo(event: InputEvent) -> void:
 	if not (event is InputEventKey and event.pressed and not event.echo):
 		return
 	match event.keycode:
+		KEY_TAB:
+			if _panel:
+				_panel.alternar()
 		KEY_V:
 			_vista_ojos = not _vista_ojos
 			print("[espejo] vista: ", "ojos del jugador" if _vista_ojos else "tercera persona")
@@ -236,6 +344,48 @@ func accion(boton: int) -> void:
 				_iniciar()
 			elif boton == 3:
 				_empezar_calibracion()
+
+func recibir_config(cfg) -> void:
+	recibir_config_local(cfg)
+
+func recibir_config_local(cfg) -> void:
+	if typeof(cfg) != TYPE_DICTIONARY:
+		return
+	var antes := Figuras.sentado
+	Figuras.sentado = bool(cfg.get("sentado", Figuras.sentado))
+	Figuras.alza_cadera = float(cfg.get("alza", Figuras.alza_cadera))
+	Figuras.apertura_piernas = float(cfg.get("apertura", Figuras.apertura_piernas))
+	if antes != Figuras.sentado:
+		print("[config] modo ", "SENTADO" if Figuras.sentado else "PARADO")
+	_rehacer_muros()
+
+func recibir_poses(poses) -> void:
+	recibir_poses_local(poses)
+
+func recibir_poses_local(poses) -> void:
+	if typeof(poses) != TYPE_ARRAY:
+		return
+	var nuevas := Figuras.lista_de_datos(poses)
+	if nuevas.is_empty():
+		return
+	Figuras.poses_editadas = nuevas
+	_poses = Figuras.todas()
+	_idx = _idx % _poses.size()
+	print("[poses] ", _poses.size(), " poses en uso")
+	_rehacer_muros()
+
+## Los muros se tallan una sola vez en _ready, asi que un cambio de modo o de
+## poses no los alcanza: hay que rearmarlos. El visor solo borra y deja que el
+## ciclo los vuelva a lanzar; el espejo los recibe de nuevo por estado.
+func _rehacer_muros() -> void:
+	for id in _muros.keys():
+		var m = _muros[id]
+		if is_instance_valid(m):
+			m.queue_free()
+	_muros.clear()
+	_muro_activo = null
+	if not _espejo:
+		_t = spawn_cada        # que salga el proximo enseguida
 
 ## Comandos que llegan de la PC (del espejo o de la ventana de la camara).
 func recibir_comando(cmd) -> void:
@@ -393,9 +543,17 @@ func _puntos_muro() -> Array:
 	# agujero es parte del juego.
 	var ancla := Figuras.a_metros(Figuras.CADERA)
 	var r := []
+	# Sentado la vertical se re-ancla en la cadera: los tobillos quedan bajo el
+	# escritorio y MediaPipe los extrapola, asi que apoyar la nube en ellos
+	# hundia o levantaba el cuerpo entero segun lo que inventara. alza_cadera
+	# sube la figura sin tocar las poses.
+	var dy := 0.0
+	if Figuras.sentado:
+		var cadera_j := (_pos(23) + _pos(24)) * 0.5
+		dy = ancla.y + Figuras.alza_cadera * Figuras.torso() - (cadera_j.y + CloudHeight)
 	for id in LANDMARK_IDS:
 		var p := _pos(id)
-		var q := Vector2(p.x, p.y + CloudHeight)
+		var q := Vector2(p.x, p.y + CloudHeight + dy)
 		r.append(ancla + (q - ancla) * escala_cuerpo)
 	return r
 

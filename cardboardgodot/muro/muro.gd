@@ -280,7 +280,8 @@ func _process(delta: float) -> void:
 func evaluar(puntos: Array) -> Dictionary:
 	var afuera := []
 	for i in puntos.size():
-		if not _cerca(i, puntos[i]):
+		# Sentado las rodillas y los tobillos no cuentan (ver Figuras.se_chequea).
+		if Figuras.se_chequea(i) and not _cerca(i, puntos[i]):
 			afuera.append(puntos[i])
 	return {"paso": afuera.is_empty(), "afuera": afuera}
 

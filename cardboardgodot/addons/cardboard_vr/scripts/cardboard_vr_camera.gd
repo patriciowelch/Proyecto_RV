@@ -102,8 +102,10 @@ func _input(event):
 func _ready() -> void:
 	# Refuerza el modo pantalla completa de project.godot: en Android el modo
 	# inmersivo se pierde con facilidad y la barra de estado vuelve a dibujarse
-	# sobre el borde superior de la imagen.
-	DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
+	# sobre el borde superior de la imagen. En el espejo de PC no corresponde:
+	# ahí la ventana tiene que poder convivir con la de la cámara.
+	if not Rol.es_espejo():
+		DisplayServer.window_set_mode(DisplayServer.WINDOW_MODE_FULLSCREEN)
 	parent = get_parent()
 	_initial_parent_rotation = parent.rotation
 	_frente_inicial = -parent.global_transform.basis.z

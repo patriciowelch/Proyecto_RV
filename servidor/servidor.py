@@ -51,6 +51,11 @@ cuadros_recibidos = 0
 # pop son atómicos bajo el GIL, así que no hace falta un lock.
 comandos_pendientes = []
 
+# Último modo (sentado/parado) y última lista de poses que anunció alguien, tal
+# como llegaron. Se reenvían a cada cliente nuevo.
+ultima_config = None
+ultimas_poses = None
+
 # Tecla -> comando. Son las mismas acciones que los botones del control: 2
 # arranca y frena, 3 calibra en T, y recentrar endereza la vista.
 TECLAS = {
@@ -67,6 +72,15 @@ async def manejar_cliente(websocket):
     global ultimo_cuadro_visor, cuadros_recibidos
     print(f"Cliente conectado desde: {websocket.remote_address}")
     clientes_conectados.add(websocket)
+    # Al que llega tarde hay que ponerlo al día: el modo sentado y las poses
+    # editadas se anuncian solo cuando cambian, así que sin esto un visor que
+    # arranca después del espejo se quedaría con la configuración por defecto.
+    try:
+        for guardado in (ultima_config, ultimas_poses):
+            if guardado is not None:
+                await websocket.send(guardado)
+    except Exception:
+        pass
     try:
         # Por este canal, que es el mismo por el que se envían los landmarks,
         # el visor devuelve dos cosas: cuadros JPEG de la vista del jugador
@@ -76,6 +90,7 @@ async def manejar_cliente(websocket):
                 ultimo_cuadro_visor = bytes(mensaje)
                 cuadros_recibidos += 1
             else:
+                _recordar(mensaje)
                 # El estado se retransmite tal cual a los demás clientes: el
                 # espejo de la PC es otro cliente más y necesita recibirlo.
                 await _retransmitir(mensaje, websocket)
@@ -84,6 +99,23 @@ async def manejar_cliente(websocket):
     finally:
         clientes_conectados.discard(websocket)
         print("Cliente desconectado")
+
+
+def _recordar(mensaje):
+    """Guarda config y poses para poder repetírselas a quien se conecte luego.
+
+    El estado del juego no se guarda: llega 30 veces por segundo y el que se
+    conecta tarde tiene el siguiente en 33 ms.
+    """
+    global ultima_config, ultimas_poses
+    try:
+        d = json.loads(mensaje)
+    except Exception:
+        return
+    if "cfg" in d:
+        ultima_config = mensaje
+    elif "poses" in d:
+        ultimas_poses = mensaje
 
 
 async def _retransmitir(mensaje, origen):

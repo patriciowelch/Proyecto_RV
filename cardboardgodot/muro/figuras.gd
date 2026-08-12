@@ -112,7 +112,31 @@ static func a_metros(p: Vector2) -> Vector2:
 ## persona parada frente a la camara, tanto en las poses de pie como en las de
 ## piernas separadas, asi que se comprime la componente horizontal de muslo y
 ## pantorrilla. En 1.0 queda la apertura original del dibujo.
-const APERTURA_PIERNAS := 0.55
+static var apertura_piernas := 0.55
+
+## Modo sentado: el jugador juega sentado frente a la camara.
+##
+## No hay poses aparte. Cambian dos cosas en la reconstruccion: las piernas van
+## juntas y rectas (apertura 0), y la vertical se ancla en la CADERA en vez de en
+## los tobillos, porque sentado los tobillos quedan bajo el escritorio y
+## MediaPipe los extrapola sin ninguna base.
+static var sentado := false
+## Cuanto se levanta el cuerpo respecto de la cadera detectada, en torsos.
+## Sentado la cadera de MediaPipe cae mas abajo de lo que corresponde al tronco;
+## esto sube la figura sin tocar las poses.
+static var alza_cadera := 0.15
+
+## Indices (dentro de los 13 nodos) de rodillas y tobillos. Sentado no se
+## chequean: las piernas estan dobladas bajo la mesa y en la proyeccion frontal
+## no hay forma de que coincidan con ningun objetivo.
+const IDX_PIERNAS := [9, 10, 11, 12]
+
+static func apertura() -> float:
+	return 0.0 if sentado else apertura_piernas
+
+## Si esta articulacion cuenta para aprobar el muro.
+static func se_chequea(i: int) -> bool:
+	return not (sentado and IDX_PIERNAS.has(i))
 
 ## Avanza `largo` desde `desde` en la direccion que va de `a` a `b`.
 static func _hacia(desde: Vector2, a: Vector2, b: Vector2, largo: float) -> Vector2:
@@ -127,7 +151,9 @@ static func _hacia_dir(desde: Vector2, d: Vector2, largo: float) -> Vector2:
 ## Direccion de un segmento de pierna, con la apertura lateral comprimida.
 static func _dir_pierna(a: Vector2, b: Vector2) -> Vector2:
 	var d := b - a
-	d.x *= APERTURA_PIERNAS
+	d.x *= apertura()
+	if sentado:
+		d.x = 0.0        # piernas juntas y rectas
 	return d
 
 ## Los 13 nodos de la pose en unidades de figura, en el MISMO orden que
@@ -252,7 +278,56 @@ static func _pose(nombre: String, cabeza: Vector2,
 		],
 	}
 
+## Poses que llegaron del editor del espejo. Si esta vacio se usan las del
+## storyboard. Se guardan como datos planos y se reconstruyen con de_datos, asi
+## viajan por el WebSocket sin ninguna serializacion especial.
+static var poses_editadas: Array = []
+
 static func todas() -> Array:
+	if not poses_editadas.is_empty():
+		return poses_editadas
+	return storyboard()
+
+## Los 9 puntos que definen una pose, en el orden que espera _pose(): cabeza,
+## codo/muneca izquierdos, codo/muneca derechos, rodilla/tobillo izquierdos,
+## rodilla/tobillo derechos.
+static func a_datos(p: Dictionary) -> Dictionary:
+	var h: Array = p["huesos"]
+	var pts := [p["cabeza"], h[2][1], h[3][1], h[4][1], h[5][1],
+		h[6][1], h[7][1], h[8][1], h[9][1]]
+	var planos := []
+	for v in pts:
+		planos.append(snappedf((v as Vector2).x, 0.001))
+		planos.append(snappedf((v as Vector2).y, 0.001))
+	return {"nombre": p["nombre"], "pts": planos}
+
+static func de_datos(d: Dictionary) -> Dictionary:
+	var a: Array = d["pts"]
+	if a.size() < 18:
+		return {}
+	var v := []
+	for i in 9:
+		v.append(Vector2(float(a[i * 2]), float(a[i * 2 + 1])))
+	return _pose(String(d.get("nombre", "sin nombre")),
+		v[0], v[1], v[2], v[3], v[4], v[5], v[6], v[7], v[8])
+
+static func lista_a_datos(poses: Array) -> Array:
+	var r := []
+	for p in poses:
+		r.append(a_datos(p))
+	return r
+
+static func lista_de_datos(datos: Array) -> Array:
+	var r := []
+	for d in datos:
+		if typeof(d) != TYPE_DICTIONARY:
+			continue
+		var p := de_datos(d)
+		if not p.is_empty():
+			r.append(p)
+	return r
+
+static func storyboard() -> Array:
 	return [
 		_pose("Agacharse", Vector2(-0.15, 1.65),
 			Vector2(0.30, 0.55), Vector2(0.75, 0.05),

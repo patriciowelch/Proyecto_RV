@@ -355,6 +355,15 @@ func _escanear() -> void:
 	_set_status("Sin servidor en %s\nreintentando..." % ", ".join(subredes))
 	_scanning = false
 	_reconnect_timer = ReconnectSeconds
+	sin_servidor()
+
+
+## Gancho para cuando un barrido completo no encontró servidor. El espejo lo usa
+## para levantarlo él mismo. Se llama recién acá, y no al arrancar, para no
+## pisar un servidor que ya esté corriendo: un segundo proceso se quedaría con
+## la cámara antes de fallar al abrir el puerto.
+func sin_servidor() -> void:
+	pass
 
 
 # --- Loop ---------------------------------------------------------------------
@@ -503,6 +512,10 @@ func _procesar(raw: String) -> void:
 		recibir_estado(data)
 	elif data.has("cmd"):
 		recibir_comando(data["cmd"])
+	elif data.has("cfg"):
+		recibir_config(data["cfg"])
+	elif data.has("poses"):
+		recibir_poses(data["poses"])
 
 
 ## La sobreescribe el gestor del juego para aplicar el estado en el espejo.
@@ -513,6 +526,15 @@ func recibir_estado(_data: Dictionary) -> void:
 ## La sobreescribe el gestor del juego para ejecutar en el visor lo que se
 ## aprieta desde la PC.
 func recibir_comando(_cmd) -> void:
+	pass
+
+
+## Configuracion (sentado/parado, alza) y lista de poses editadas. Las aplican
+## los DOS roles: el visor porque construye y chequea, el espejo porque dibuja.
+func recibir_config(_cfg) -> void:
+	pass
+
+func recibir_poses(_poses) -> void:
 	pass
 
 
